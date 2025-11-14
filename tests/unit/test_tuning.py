@@ -118,12 +118,16 @@ class TestQuantizeToScale:
         result = quantize_to_scale(61.0, 60, major_scale)
         assert result in [60, 62]
 
-        # 61.8 should snap to 62 (D) - closer to D
+        # 61.8 should snap to 62 (D) - 0.2 semitones from D
         result = quantize_to_scale(61.8, 60, major_scale)
         assert result == 62
 
-        # 61.2 should snap to 60 (C) - closer to C
+        # 61.2 should snap to 62 (D) - 0.8 semitones from D vs 1.2 from C
         result = quantize_to_scale(61.2, 60, major_scale)
+        assert result == 62
+
+        # 60.8 should snap to 60 (C) - 0.8 semitones from C vs 1.2 from D
+        result = quantize_to_scale(60.8, 60, major_scale)
         assert result == 60
 
     def test_quantize_across_octaves(self):
