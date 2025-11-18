@@ -2,7 +2,7 @@
 Main processing pipeline for harmonic-preserving frequency shifting.
 
 This module orchestrates the STFT, frequency shifting, quantization,
-and phase vocoder to create the final effect.
+and enhanced phase vocoder to create high-quality frequency-shifted audio.
 """
 
 from typing import Optional
@@ -12,14 +12,16 @@ import numpy as np
 from ..core.stft import stft, istft
 from ..core.frequency_shifter import FrequencyShifter
 from ..core.quantizer import MusicalQuantizer
+from ..core.phase_vocoder import propagate_phase_enhanced
 
 
 class HarmonicShifter:
     """
     Main processor for harmonic-preserving frequency shifting.
 
-    Combines frequency shifting with musical scale quantization to create
-    shifted audio that remains musical.
+    Combines frequency shifting with musical scale quantization and
+    enhanced phase vocoder processing to create shifted audio that
+    remains musical with minimal metallic artifacts.
     """
 
     def __init__(
@@ -27,7 +29,8 @@ class HarmonicShifter:
         sample_rate: int = 44100,
         fft_size: int = 4096,
         hop_size: int = 1024,
-        window: str = 'hann'
+        window: str = 'hann',
+        use_enhanced_phase_vocoder: bool = True
     ):
         """
         Initialize harmonic shifter.
@@ -37,6 +40,7 @@ class HarmonicShifter:
             fft_size: FFT window size (power of 2)
             hop_size: Hop size between frames in samples
             window: Window function ('hann', 'hamming', 'blackman')
+            use_enhanced_phase_vocoder: Use enhanced phase vocoder (recommended)
 
         Example:
             >>> processor = HarmonicShifter(sample_rate=44100, fft_size=4096)
@@ -54,6 +58,7 @@ class HarmonicShifter:
         self.fft_size = fft_size
         self.hop_size = hop_size
         self.window = window
+        self.use_enhanced_phase_vocoder = use_enhanced_phase_vocoder
 
         # Initialize frequency shifter
         self.shifter = FrequencyShifter(sample_rate, fft_size)
@@ -86,6 +91,9 @@ class HarmonicShifter:
         """
         Process audio with frequency shifting and scale quantization.
 
+        This method uses an enhanced phase vocoder to maintain phase coherence
+        across frames, reducing metallic artifacts.
+
         Args:
             audio: Input audio (mono, 1D array, normalized to [-1, 1])
             shift_hz: Frequency shift in Hz (positive or negative)
@@ -116,6 +124,7 @@ class HarmonicShifter:
             )
 
         # Handle empty or very short audio
+        original_length = len(audio)
         if len(audio) < self.fft_size:
             # Pad with zeros
             padded = np.zeros(self.fft_size)
@@ -130,19 +139,26 @@ class HarmonicShifter:
             window=self.window
         )
 
-        # Step 2: Frequency shifting
-        if shift_hz != 0:
-            magnitude, phase = self.shifter.shift(magnitude, phase, shift_hz)
-
-        # Step 3: Musical quantization (if requested)
-        if quantize_strength > 0 and self.quantizer is not None:
-            magnitude, phase = self.quantizer.quantize_spectrum(
-                magnitude,
-                phase,
-                self.sample_rate,
-                self.fft_size,
-                strength=quantize_strength
+        # If using enhanced phase vocoder, process frame by frame
+        if self.use_enhanced_phase_vocoder and shift_hz != 0:
+            magnitude, phase = self._process_with_phase_vocoder(
+                magnitude, phase, shift_hz, quantize_strength
             )
+        else:
+            # Simple processing without phase vocoder (legacy)
+            # Step 2: Frequency shifting
+            if shift_hz != 0:
+                magnitude, phase = self.shifter.shift(magnitude, phase, shift_hz)
+
+            # Step 3: Musical quantization (if requested)
+            if quantize_strength > 0 and self.quantizer is not None:
+                magnitude, phase = self.quantizer.quantize_spectrum(
+                    magnitude,
+                    phase,
+                    self.sample_rate,
+                    self.fft_size,
+                    strength=quantize_strength
+                )
 
         # Step 4: ISTFT synthesis
         output = istft(
@@ -153,7 +169,7 @@ class HarmonicShifter:
         )
 
         # Trim to original length
-        output = output[:len(audio)]
+        output = output[:original_length]
 
         # Normalize to prevent clipping
         max_val = np.max(np.abs(output))
@@ -161,6 +177,109 @@ class HarmonicShifter:
             output = output / max_val
 
         return output
+
+    def _process_with_phase_vocoder(
+        self,
+        magnitude: np.ndarray,
+        phase: np.ndarray,
+        shift_hz: float,
+        quantize_strength: float
+    ) -> tuple:
+        """
+        Process spectrum with enhanced phase vocoder.
+
+        This maintains phase coherence across frames to reduce artifacts.
+
+        Args:
+            magnitude: (n_frames, n_bins) magnitude spectrum
+            phase: (n_frames, n_bins) phase spectrum
+            shift_hz: Frequency shift in Hz
+            quantize_strength: Quantization strength (0-1)
+
+        Returns:
+            Tuple of (processed_magnitude, processed_phase)
+        """
+        n_frames, n_bins = magnitude.shape
+
+        # Initialize output arrays
+        output_magnitude = np.zeros_like(magnitude)
+        output_phase = np.zeros_like(phase)
+
+        # Initialize synthesis phase for first frame
+        synth_phase_prev = phase[0].copy()
+
+        for frame_idx in range(n_frames):
+            # Current frame
+            mag_curr = magnitude[frame_idx]
+            phase_curr = phase[frame_idx]
+
+            if frame_idx == 0:
+                # First frame: just copy (no previous frame for analysis)
+                mag_shifted = mag_curr.copy()
+                phase_shifted = phase_curr.copy()
+            else:
+                # Previous frame
+                mag_prev = magnitude[frame_idx - 1]
+                phase_prev = phase[frame_idx - 1]
+
+                # Apply enhanced phase vocoder with peak detection
+                inst_freq, locked_phase = propagate_phase_enhanced(
+                    mag_prev, phase_prev,
+                    mag_curr, phase_curr,
+                    self.hop_size, self.sample_rate,
+                    use_phase_locking=True
+                )
+
+                # Apply frequency shift to instantaneous frequencies
+                shifted_freq = inst_freq + shift_hz
+
+                # Synthesize phase for shifted frequencies
+                phase_advance = 2 * np.pi * shifted_freq * self.hop_size / self.sample_rate
+                synth_phase_curr = synth_phase_prev + phase_advance
+                synth_phase_curr = np.angle(np.exp(1j * synth_phase_curr))
+
+                mag_shifted = mag_curr.copy()
+                phase_shifted = synth_phase_curr
+
+                # Update previous synthesis phase
+                synth_phase_prev = synth_phase_curr
+
+            # Shift frequency bins (magnitude reassignment)
+            if shift_hz != 0:
+                bin_shift = int(round(shift_hz / (self.sample_rate / self.fft_size)))
+                mag_shifted_bins = np.zeros_like(mag_shifted)
+                phase_shifted_bins = np.zeros_like(phase_shifted)
+
+                for k in range(n_bins):
+                    k_new = k + bin_shift
+                    if 0 <= k_new < n_bins:
+                        mag_shifted_bins[k_new] = mag_shifted[k]
+                        phase_shifted_bins[k_new] = phase_shifted[k]
+
+                mag_shifted = mag_shifted_bins
+                phase_shifted = phase_shifted_bins
+
+            # Apply quantization if requested
+            if quantize_strength > 0 and self.quantizer is not None:
+                # Quantize to scale
+                mag_reshaped = mag_shifted.reshape(1, -1)
+                phase_reshaped = phase_shifted.reshape(1, -1)
+
+                mag_quantized, phase_quantized = self.quantizer.quantize_spectrum(
+                    mag_reshaped,
+                    phase_reshaped,
+                    self.sample_rate,
+                    self.fft_size,
+                    strength=quantize_strength
+                )
+
+                mag_shifted = mag_quantized[0]
+                phase_shifted = phase_quantized[0]
+
+            output_magnitude[frame_idx] = mag_shifted
+            output_phase[frame_idx] = phase_shifted
+
+        return output_magnitude, output_phase
 
     def process_batch(
         self,
@@ -219,6 +338,7 @@ class HarmonicShifter:
             'window': self.window,
             'latency_ms': self.get_latency_ms(),
             'frequency_resolution_hz': self.sample_rate / self.fft_size,
+            'enhanced_phase_vocoder': self.use_enhanced_phase_vocoder,
         }
 
         if self.quantizer is not None:
