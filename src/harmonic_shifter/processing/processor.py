@@ -86,7 +86,8 @@ class HarmonicShifter:
         self,
         audio: np.ndarray,
         shift_hz: float,
-        quantize_strength: float = 1.0
+        quantize_strength: float = 1.0,
+        preserve_loudness: bool = True
     ) -> np.ndarray:
         """
         Process audio with frequency shifting and scale quantization.
@@ -100,6 +101,7 @@ class HarmonicShifter:
             quantize_strength: 0-1, amount of scale quantization
                              0.0 = pure frequency shift (inharmonic)
                              1.0 = fully quantized to scale (harmonic)
+            preserve_loudness: Apply automatic gain compensation (recommended)
 
         Returns:
             Processed audio (same shape as input)
@@ -122,6 +124,9 @@ class HarmonicShifter:
             raise ValueError(
                 "Scale not set. Call set_scale() before processing with quantization."
             )
+
+        # Measure input RMS for loudness preservation
+        input_rms = np.sqrt(np.mean(audio ** 2)) if preserve_loudness else None
 
         # Handle empty or very short audio
         original_length = len(audio)
@@ -170,6 +175,16 @@ class HarmonicShifter:
 
         # Trim to original length
         output = output[:original_length]
+
+        # Apply loudness preservation (automatic gain compensation)
+        if preserve_loudness and input_rms is not None and input_rms > 1e-8:
+            output_rms = np.sqrt(np.mean(output ** 2))
+            if output_rms > 1e-8:
+                # Apply gain to match input loudness
+                gain = input_rms / output_rms
+                # Limit gain to prevent extreme amplification
+                gain = np.clip(gain, 0.1, 10.0)
+                output = output * gain
 
         # Normalize to prevent clipping
         max_val = np.max(np.abs(output))
@@ -285,7 +300,8 @@ class HarmonicShifter:
         self,
         audio_list: list,
         shift_hz: float,
-        quantize_strength: float = 1.0
+        quantize_strength: float = 1.0,
+        preserve_loudness: bool = True
     ) -> list:
         """
         Process multiple audio signals with same parameters.
@@ -294,6 +310,7 @@ class HarmonicShifter:
             audio_list: List of audio arrays
             shift_hz: Frequency shift in Hz
             quantize_strength: Quantization strength (0-1)
+            preserve_loudness: Apply automatic gain compensation (recommended)
 
         Returns:
             List of processed audio arrays
@@ -302,7 +319,7 @@ class HarmonicShifter:
             >>> outputs = processor.process_batch([audio1, audio2], shift_hz=100)
         """
         return [
-            self.process(audio, shift_hz, quantize_strength)
+            self.process(audio, shift_hz, quantize_strength, preserve_loudness)
             for audio in audio_list
         ]
 
