@@ -53,8 +53,8 @@ def load_audio(
     if mono and len(audio.shape) > 1:
         audio = np.mean(audio, axis=1)
 
-    # Ensure 1D array
-    if len(audio.shape) > 1:
+    # Ensure 1D array (only if mono was requested)
+    if mono and len(audio.shape) > 1:
         raise ValueError(
             f"Expected mono audio after conversion, got shape {audio.shape}"
         )
