@@ -94,9 +94,13 @@ def save_audio(
     """
     Save audio to file.
 
+    Supports both mono and stereo/multi-channel audio.
+
     Args:
         filepath: Output file path
         audio: Audio data (will be clipped to [-1, 1])
+              - Mono: (n_samples,) 1D array
+              - Stereo/Multi-channel: (n_samples, n_channels) 2D array
         sample_rate: Sample rate in Hz
         subtype: Bit depth ('PCM_16', 'PCM_24', 'FLOAT')
 
@@ -104,10 +108,13 @@ def save_audio(
         ValueError: If audio format is invalid
 
     Example:
-        >>> save_audio('output.wav', audio, sample_rate=44100, subtype='PCM_24')
+        >>> # Mono
+        >>> save_audio('output_mono.wav', mono_audio, sample_rate=44100)
+        >>> # Stereo
+        >>> save_audio('output_stereo.wav', stereo_audio, sample_rate=44100)
     """
-    # Validate audio
-    validate_audio(audio)
+    # Validate audio (allow multi-channel)
+    validate_audio(audio, allow_multichannel=True)
 
     # Clip to [-1, 1] to prevent clipping artifacts
     audio = np.clip(audio, -1.0, 1.0)
@@ -122,12 +129,13 @@ def save_audio(
         raise ValueError(f"Error saving audio file: {e}")
 
 
-def validate_audio(audio: np.ndarray) -> None:
+def validate_audio(audio: np.ndarray, allow_multichannel: bool = True) -> None:
     """
     Validate audio array format.
 
     Args:
         audio: Audio array to validate
+        allow_multichannel: Allow 2D multi-channel audio (default True)
 
     Raises:
         ValueError: If audio format is invalid
@@ -138,11 +146,18 @@ def validate_audio(audio: np.ndarray) -> None:
     if not isinstance(audio, np.ndarray):
         raise ValueError(f"Audio must be numpy array, got {type(audio)}")
 
-    if len(audio.shape) != 1:
-        raise ValueError(f"Audio must be 1D, got shape {audio.shape}")
-
-    if len(audio) == 0:
-        raise ValueError("Audio array is empty")
+    if len(audio.shape) == 1:
+        # Mono audio
+        if len(audio) == 0:
+            raise ValueError("Audio array is empty")
+    elif len(audio.shape) == 2:
+        # Multi-channel audio
+        if not allow_multichannel:
+            raise ValueError(f"Multi-channel audio not allowed, got shape {audio.shape}")
+        if audio.shape[0] == 0:
+            raise ValueError("Audio array is empty")
+    else:
+        raise ValueError(f"Audio must be 1D (mono) or 2D (multi-channel), got shape {audio.shape}")
 
     if not np.all(np.isfinite(audio)):
         raise ValueError("Audio contains NaN or Inf values")

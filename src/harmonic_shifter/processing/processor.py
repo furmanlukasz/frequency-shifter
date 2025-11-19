@@ -95,8 +95,13 @@ class HarmonicShifter:
         This method uses an enhanced phase vocoder to maintain phase coherence
         across frames, reducing metallic artifacts.
 
+        Supports both mono (1D) and stereo/multi-channel (2D) audio. For stereo,
+        each channel is processed independently to preserve spatial information.
+
         Args:
-            audio: Input audio (mono, 1D array, normalized to [-1, 1])
+            audio: Input audio, normalized to [-1, 1]
+                  - Mono: (n_samples,) 1D array
+                  - Stereo/Multi-channel: (n_samples, n_channels) 2D array
             shift_hz: Frequency shift in Hz (positive or negative)
             quantize_strength: 0-1, amount of scale quantization
                              0.0 = pure frequency shift (inharmonic)
@@ -111,11 +116,61 @@ class HarmonicShifter:
             ValueError: If audio format is invalid
 
         Example:
-            >>> output = processor.process(audio, shift_hz=100, quantize_strength=1.0)
+            >>> # Mono
+            >>> output = processor.process(mono_audio, shift_hz=100)
+            >>> # Stereo
+            >>> output = processor.process(stereo_audio, shift_hz=100)
+        """
+        # Handle multi-channel audio by processing each channel independently
+        if len(audio.shape) == 2:
+            # Multi-channel audio: process each channel separately
+            n_samples, n_channels = audio.shape
+            output_channels = []
+
+            for ch in range(n_channels):
+                channel_output = self._process_mono(
+                    audio[:, ch],
+                    shift_hz,
+                    quantize_strength,
+                    preserve_loudness
+                )
+                output_channels.append(channel_output)
+
+            # Stack channels back together
+            output = np.column_stack(output_channels)
+            return output
+
+        elif len(audio.shape) == 1:
+            # Mono audio: process directly
+            return self._process_mono(audio, shift_hz, quantize_strength, preserve_loudness)
+
+        else:
+            raise ValueError(f"Audio must be 1D (mono) or 2D (multi-channel), got shape {audio.shape}")
+
+    def _process_mono(
+        self,
+        audio: np.ndarray,
+        shift_hz: float,
+        quantize_strength: float,
+        preserve_loudness: bool
+    ) -> np.ndarray:
+        """
+        Process a single channel of audio.
+
+        This is the core processing function called by process() for each channel.
+
+        Args:
+            audio: Mono audio (1D array, normalized to [-1, 1])
+            shift_hz: Frequency shift in Hz
+            quantize_strength: Quantization strength (0-1)
+            preserve_loudness: Apply gain compensation
+
+        Returns:
+            Processed mono audio (1D array)
         """
         # Validate inputs
         if len(audio.shape) != 1:
-            raise ValueError(f"Audio must be 1D, got shape {audio.shape}")
+            raise ValueError(f"_process_mono expects 1D audio, got shape {audio.shape}")
 
         if quantize_strength < 0 or quantize_strength > 1:
             raise ValueError(f"Quantize strength must be 0-1, got {quantize_strength}")
