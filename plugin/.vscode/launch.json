@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Standalone",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/FrequencyShifter_artefacts/Debug/Standalone/Frequency Shifter.app",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build Debug"
+        },
+        {
+            "name": "Debug Standalone (Release)",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/FrequencyShifter_artefacts/Release/Standalone/Frequency Shifter.app",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build Release"
+        }
+    ]
+}

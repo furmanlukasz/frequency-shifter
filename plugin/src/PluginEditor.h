@@ -1,0 +1,101 @@
+#pragma once
+
+#include <JuceHeader.h>
+#include "PluginProcessor.h"
+
+/**
+ * FrequencyShifterEditor - GUI for the Frequency Shifter plugin.
+ *
+ * Provides a clean, modern interface with:
+ * - Large frequency shift knob with Hz display
+ * - Scale quantization controls
+ * - Root note and scale type selection
+ * - Dry/wet mix control
+ * - Enhanced phase vocoder toggle
+ *
+ * UI Design Notes:
+ * - The interface is designed for easy customization later
+ * - Uses JUCE's LookAndFeel for consistent styling
+ * - All controls are attached to AudioProcessorValueTreeState parameters
+ */
+class FrequencyShifterEditor : public juce::AudioProcessorEditor
+{
+public:
+    explicit FrequencyShifterEditor(FrequencyShifterProcessor& processor);
+    ~FrequencyShifterEditor() override;
+
+    void paint(juce::Graphics&) override;
+    void resized() override;
+
+private:
+    // Custom look and feel for modern appearance
+    class ModernLookAndFeel : public juce::LookAndFeel_V4
+    {
+    public:
+        ModernLookAndFeel();
+
+        void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
+                              float sliderPosProportional, float rotaryStartAngle,
+                              float rotaryEndAngle, juce::Slider& slider) override;
+
+        void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
+                              float sliderPos, float minSliderPos, float maxSliderPos,
+                              juce::Slider::SliderStyle style, juce::Slider& slider) override;
+    };
+
+    // Helper to create a styled label
+    void setupLabel(juce::Label& label, const juce::String& text);
+
+    // Helper to create a styled slider
+    void setupSlider(juce::Slider& slider, juce::Slider::SliderStyle style);
+
+    // Reference to processor
+    FrequencyShifterProcessor& audioProcessor;
+
+    // Custom look and feel
+    ModernLookAndFeel modernLookAndFeel;
+
+    // Main frequency shift control
+    juce::Slider shiftSlider;
+    juce::Label shiftLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> shiftAttachment;
+
+    // Quantization control
+    juce::Slider quantizeSlider;
+    juce::Label quantizeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> quantizeAttachment;
+
+    // Root note selector
+    juce::ComboBox rootNoteCombo;
+    juce::Label rootNoteLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rootNoteAttachment;
+
+    // Scale type selector
+    juce::ComboBox scaleTypeCombo;
+    juce::Label scaleTypeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> scaleTypeAttachment;
+
+    // Dry/wet mix
+    juce::Slider dryWetSlider;
+    juce::Label dryWetLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> dryWetAttachment;
+
+    // Phase vocoder toggle
+    juce::ToggleButton phaseVocoderButton;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> phaseVocoderAttachment;
+
+    // UI colors (for easy customization)
+    struct Colors
+    {
+        static constexpr juce::uint32 background = 0xFF1E1E2E;
+        static constexpr juce::uint32 panelBackground = 0xFF2A2A3E;
+        static constexpr juce::uint32 accent = 0xFF7AA2F7;
+        static constexpr juce::uint32 accentSecondary = 0xFF9ECE6A;
+        static constexpr juce::uint32 text = 0xFFCDD6F4;
+        static constexpr juce::uint32 textDim = 0xFF6C7086;
+        static constexpr juce::uint32 knobBackground = 0xFF313244;
+        static constexpr juce::uint32 knobForeground = 0xFF45475A;
+    };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FrequencyShifterEditor)
+};
