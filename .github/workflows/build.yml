@@ -1,0 +1,140 @@
+name: Build Plugin
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      working-directory: plugin
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
+
+    - name: Build
+      working-directory: plugin
+      run: cmake --build build --config Release --parallel
+
+    - name: List build artifacts
+      working-directory: plugin
+      run: |
+        echo "=== VST3 ==="
+        find build -name "*.vst3" -type d
+        echo "=== AU ==="
+        find build -name "*.component" -type d
+
+    - name: Package VST3
+      working-directory: plugin
+      run: |
+        mkdir -p artifacts/VST3
+        cp -R build/FrequencyShifter_artefacts/Release/VST3/*.vst3 artifacts/VST3/ || true
+
+    - name: Package AU
+      working-directory: plugin
+      run: |
+        mkdir -p artifacts/AU
+        cp -R build/FrequencyShifter_artefacts/Release/AU/*.component artifacts/AU/ || true
+
+    - name: Upload VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: FrequencyShifter-macOS-VST3
+        path: plugin/artifacts/VST3/
+        if-no-files-found: warn
+
+    - name: Upload AU
+      uses: actions/upload-artifact@v4
+      with:
+        name: FrequencyShifter-macOS-AU
+        path: plugin/artifacts/AU/
+        if-no-files-found: warn
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      working-directory: plugin
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      working-directory: plugin
+      run: cmake --build build --config Release --parallel
+
+    - name: Package VST3
+      working-directory: plugin
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts/VST3
+        Copy-Item -Recurse "build/FrequencyShifter_artefacts/Release/VST3/*" "artifacts/VST3/" -ErrorAction SilentlyContinue
+
+    - name: Upload VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: FrequencyShifter-Windows-VST3
+        path: plugin/artifacts/VST3/
+        if-no-files-found: warn
+
+  # Collect all artifacts into a single release-ready package
+  package:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Download macOS VST3
+      uses: actions/download-artifact@v4
+      with:
+        name: FrequencyShifter-macOS-VST3
+        path: release/macOS-VST3
+
+    - name: Download macOS AU
+      uses: actions/download-artifact@v4
+      with:
+        name: FrequencyShifter-macOS-AU
+        path: release/macOS-AU
+
+    - name: Download Windows VST3
+      uses: actions/download-artifact@v4
+      with:
+        name: FrequencyShifter-Windows-VST3
+        path: release/Windows-VST3
+
+    - name: Create release archives
+      run: |
+        cd release
+        zip -r FrequencyShifter-macOS-VST3.zip macOS-VST3/
+        zip -r FrequencyShifter-macOS-AU.zip macOS-AU/
+        zip -r FrequencyShifter-Windows-VST3.zip Windows-VST3/
+
+    - name: Upload release package
+      uses: actions/upload-artifact@v4
+      with:
+        name: FrequencyShifter-All-Platforms
+        path: release/*.zip

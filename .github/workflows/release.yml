@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      working-directory: plugin
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
+
+    - name: Build
+      working-directory: plugin
+      run: cmake --build build --config Release --parallel
+
+    - name: Package VST3
+      working-directory: plugin
+      run: |
+        mkdir -p artifacts
+        cd build/FrequencyShifter_artefacts/Release/VST3
+        zip -r ../../../../artifacts/FrequencyShifter-macOS-VST3.zip *.vst3
+
+    - name: Package AU
+      working-directory: plugin
+      run: |
+        cd build/FrequencyShifter_artefacts/Release/AU
+        zip -r ../../../../artifacts/FrequencyShifter-macOS-AU.zip *.component
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-plugins
+        path: plugin/artifacts/*.zip
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      working-directory: plugin
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      working-directory: plugin
+      run: cmake --build build --config Release --parallel
+
+    - name: Package VST3
+      working-directory: plugin
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts
+        Compress-Archive -Path "build/FrequencyShifter_artefacts/Release/VST3/*" -DestinationPath "artifacts/FrequencyShifter-Windows-VST3.zip"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-plugins
+        path: plugin/artifacts/*.zip
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download macOS artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: macos-plugins
+        path: release
+
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: windows-plugins
+        path: release
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Frequency Shifter ${{ steps.version.outputs.version }}
+        draft: false
+        prerelease: false
+        body: |
+          ## Harmonic-Preserving Frequency Shifter ${{ steps.version.outputs.version }}
+
+          A VST3/AU audio plugin that combines frequency shifting with musical scale quantization.
+
+          ### Downloads
+
+          | Platform | Format | File |
+          |----------|--------|------|
+          | macOS (Universal) | VST3 | `FrequencyShifter-macOS-VST3.zip` |
+          | macOS (Universal) | AU | `FrequencyShifter-macOS-AU.zip` |
+          | Windows | VST3 | `FrequencyShifter-Windows-VST3.zip` |
+
+          ### Installation
+
+          **macOS VST3:**
+          - Extract and copy to `/Library/Audio/Plug-Ins/VST3/` (system-wide) or `~/Library/Audio/Plug-Ins/VST3/` (user)
+
+          **macOS AU:**
+          - Extract and copy to `/Library/Audio/Plug-Ins/Components/` (system-wide) or `~/Library/Audio/Plug-Ins/Components/` (user)
+
+          **Windows VST3:**
+          - Extract and copy to `C:\Program Files\Common Files\VST3\`
+
+          ### System Requirements
+
+          - **macOS:** 11.0+ (Intel and Apple Silicon)
+          - **Windows:** Windows 10+
+          - **DAW:** Any VST3 or AU compatible host
+
+          ### What's New
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+
+        files: |
+          release/*.zip
