@@ -84,6 +84,11 @@ private:
     juce::ToggleButton phaseVocoderButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> phaseVocoderAttachment;
 
+    // Quality mode selector
+    juce::ComboBox qualityModeCombo;
+    juce::Label qualityModeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> qualityModeAttachment;
+
     // UI colors (for easy customization)
     struct Colors
     {

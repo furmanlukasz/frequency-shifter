@@ -61,6 +61,18 @@ public:
     static constexpr const char* PARAM_SCALE_TYPE = "scaleType";
     static constexpr const char* PARAM_DRY_WET = "dryWet";
     static constexpr const char* PARAM_PHASE_VOCODER = "phaseVocoder";
+    static constexpr const char* PARAM_QUALITY_MODE = "qualityMode";
+
+    // Quality mode enum - controls FFT size / latency tradeoff
+    enum class QualityMode
+    {
+        LowLatency = 0,  // FFT 1024, Hop 256 (~23ms latency, more artifacts)
+        Balanced = 1,    // FFT 2048, Hop 512 (~46ms latency)
+        Quality = 2      // FFT 4096, Hop 1024 (~93ms latency, cleanest)
+    };
+
+    // Get current latency in samples
+    int getLatencySamples() const;
 
 private:
     // Create parameter layout
@@ -86,14 +98,21 @@ private:
     std::atomic<bool> usePhaseVocoder{ true };
     std::atomic<int> rootNote{ 60 };  // C4
     std::atomic<int> scaleType{ 0 };  // Major
+    std::atomic<int> qualityMode{ static_cast<int>(QualityMode::Quality) };
 
     // Processing state
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
 
-    // FFT settings
-    static constexpr int FFT_SIZE = 4096;
-    static constexpr int HOP_SIZE = 1024;
+    // Current FFT settings (updated when quality mode changes)
+    int currentFftSize = 4096;
+    int currentHopSize = 1024;
+
+    // Flag to reinitialize DSP on next block
+    std::atomic<bool> needsReinit{ false };
+
+    // Reinitialize DSP components with new FFT settings
+    void reinitializeDsp();
 
     // Input/output buffers for overlap-add
     std::array<std::vector<float>, MAX_CHANNELS> inputBuffers;

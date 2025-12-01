@@ -15,6 +15,7 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_SCALE_TYPE, this);
     parameters.addParameterListener(PARAM_DRY_WET, this);
     parameters.addParameterListener(PARAM_PHASE_VOCODER, this);
+    parameters.addParameterListener(PARAM_QUALITY_MODE, this);
 
     // Initialize quantizer with default scale (C Major)
     quantizer = std::make_unique<fshift::MusicalQuantizer>(60, fshift::ScaleType::Major);
@@ -28,6 +29,7 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_SCALE_TYPE, this);
     parameters.removeParameterListener(PARAM_DRY_WET, this);
     parameters.removeParameterListener(PARAM_PHASE_VOCODER, this);
+    parameters.removeParameterListener(PARAM_QUALITY_MODE, this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::createParameterLayout()
@@ -91,6 +93,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         "Enhanced Mode",
         true));
 
+    // Quality mode (latency/quality tradeoff)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ PARAM_QUALITY_MODE, 1 },
+        "Quality",
+        juce::StringArray{ "Low Latency", "Balanced", "Quality" },
+        2));  // Default to Quality mode
+
     return { params.begin(), params.end() };
 }
 
@@ -130,6 +139,15 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     {
         usePhaseVocoder.store(newValue > 0.5f);
     }
+    else if (parameterID == PARAM_QUALITY_MODE)
+    {
+        int mode = static_cast<int>(newValue);
+        if (mode != qualityMode.load())
+        {
+            qualityMode.store(mode);
+            needsReinit.store(true);
+        }
+    }
 }
 
 void FrequencyShifterProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -137,24 +155,53 @@ void FrequencyShifterProcessor::prepareToPlay(double sampleRate, int samplesPerB
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
 
+    // Initialize with current quality mode
+    reinitializeDsp();
+}
+
+void FrequencyShifterProcessor::reinitializeDsp()
+{
+    // Determine FFT/hop sizes based on quality mode
+    const auto mode = static_cast<QualityMode>(qualityMode.load());
+    switch (mode)
+    {
+        case QualityMode::LowLatency:
+            currentFftSize = 1024;
+            currentHopSize = 256;
+            break;
+        case QualityMode::Balanced:
+            currentFftSize = 2048;
+            currentHopSize = 512;
+            break;
+        case QualityMode::Quality:
+        default:
+            currentFftSize = 4096;
+            currentHopSize = 1024;
+            break;
+    }
+
     const int numChannels = getTotalNumInputChannels();
 
     // Initialize DSP components for each channel
     for (int ch = 0; ch < std::min(numChannels, MAX_CHANNELS); ++ch)
     {
-        stftProcessors[ch] = std::make_unique<fshift::STFT>(FFT_SIZE, HOP_SIZE);
-        stftProcessors[ch]->prepare(sampleRate);
+        stftProcessors[ch] = std::make_unique<fshift::STFT>(currentFftSize, currentHopSize);
+        stftProcessors[ch]->prepare(currentSampleRate);
 
-        phaseVocoders[ch] = std::make_unique<fshift::PhaseVocoder>(FFT_SIZE, HOP_SIZE, sampleRate);
+        phaseVocoders[ch] = std::make_unique<fshift::PhaseVocoder>(currentFftSize, currentHopSize, currentSampleRate);
 
-        frequencyShifters[ch] = std::make_unique<fshift::FrequencyShifter>(sampleRate, FFT_SIZE);
+        frequencyShifters[ch] = std::make_unique<fshift::FrequencyShifter>(currentSampleRate, currentFftSize);
 
         // Initialize overlap-add buffers
-        inputBuffers[ch].resize(FFT_SIZE * 2, 0.0f);
-        outputBuffers[ch].resize(FFT_SIZE * 2, 0.0f);
+        inputBuffers[ch].resize(static_cast<size_t>(currentFftSize) * 2, 0.0f);
+        outputBuffers[ch].resize(static_cast<size_t>(currentFftSize) * 2, 0.0f);
         inputWritePos[ch] = 0;
         outputReadPos[ch] = 0;
     }
+
+    // Update latency reporting
+    setLatencySamples(getLatencySamples());
+    needsReinit.store(false);
 }
 
 void FrequencyShifterProcessor::releaseResources()
@@ -187,6 +234,12 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 {
     juce::ScopedNoDenormals noDenormals;
 
+    // Check if we need to reinitialize DSP (quality mode changed)
+    if (needsReinit.load())
+    {
+        reinitializeDsp();
+    }
+
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 
@@ -195,6 +248,10 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const float currentQuantizeStrength = quantizeStrength.load();
     const float currentDryWet = dryWetMix.load();
     const bool currentUsePhaseVocoder = usePhaseVocoder.load();
+
+    // Cache current FFT settings for this block
+    const int fftSize = currentFftSize;
+    const int hopSize = currentHopSize;
 
     // If no processing needed, just pass through
     if (std::abs(currentShiftHz) < 0.01f && currentQuantizeStrength < 0.01f)
@@ -205,6 +262,9 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     // Process each channel
     for (int channel = 0; channel < std::min(numChannels, MAX_CHANNELS); ++channel)
     {
+        if (!stftProcessors[channel])
+            continue;
+
         auto* channelData = buffer.getWritePointer(channel);
 
         // Store dry signal for mixing
@@ -214,19 +274,19 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         for (int i = 0; i < numSamples; ++i)
         {
             // Write input sample to circular buffer
-            inputBuffers[channel][inputWritePos[channel]] = channelData[i];
-            inputWritePos[channel] = (inputWritePos[channel] + 1) % inputBuffers[channel].size();
+            inputBuffers[channel][static_cast<size_t>(inputWritePos[channel])] = channelData[i];
+            inputWritePos[channel] = (inputWritePos[channel] + 1) % static_cast<int>(inputBuffers[channel].size());
 
             // Check if we have enough samples for an FFT frame
-            if (inputWritePos[channel] % HOP_SIZE == 0)
+            if (inputWritePos[channel] % hopSize == 0)
             {
                 // Get input frame
-                std::vector<float> inputFrame(FFT_SIZE);
-                int readPos = (inputWritePos[channel] - FFT_SIZE + inputBuffers[channel].size())
-                              % inputBuffers[channel].size();
-                for (int j = 0; j < FFT_SIZE; ++j)
+                std::vector<float> inputFrame(static_cast<size_t>(fftSize));
+                int readPos = (inputWritePos[channel] - fftSize + static_cast<int>(inputBuffers[channel].size()))
+                              % static_cast<int>(inputBuffers[channel].size());
+                for (int j = 0; j < fftSize; ++j)
                 {
-                    inputFrame[j] = inputBuffers[channel][(readPos + j) % inputBuffers[channel].size()];
+                    inputFrame[static_cast<size_t>(j)] = inputBuffers[channel][static_cast<size_t>((readPos + j) % static_cast<int>(inputBuffers[channel].size()))];
                 }
 
                 // Perform STFT
@@ -248,25 +308,25 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 if (currentQuantizeStrength > 0.01f && quantizer)
                 {
                     std::tie(magnitude, phase) = quantizer->quantizeSpectrum(
-                        magnitude, phase, currentSampleRate, FFT_SIZE, currentQuantizeStrength);
+                        magnitude, phase, currentSampleRate, fftSize, currentQuantizeStrength);
                 }
 
                 // Perform inverse STFT
                 auto outputFrame = stftProcessors[channel]->inverse(magnitude, phase);
 
                 // Overlap-add to output buffer
-                int writePos = (outputReadPos[channel] + i) % outputBuffers[channel].size();
-                for (int j = 0; j < FFT_SIZE; ++j)
+                int writePos = (outputReadPos[channel] + i) % static_cast<int>(outputBuffers[channel].size());
+                for (int j = 0; j < fftSize; ++j)
                 {
-                    int pos = (writePos + j) % outputBuffers[channel].size();
-                    outputBuffers[channel][pos] += outputFrame[j];
+                    int pos = (writePos + j) % static_cast<int>(outputBuffers[channel].size());
+                    outputBuffers[channel][static_cast<size_t>(pos)] += outputFrame[static_cast<size_t>(j)];
                 }
             }
 
             // Read from output buffer
-            channelData[i] = outputBuffers[channel][outputReadPos[channel]];
-            outputBuffers[channel][outputReadPos[channel]] = 0.0f;  // Clear for next overlap-add
-            outputReadPos[channel] = (outputReadPos[channel] + 1) % outputBuffers[channel].size();
+            channelData[i] = outputBuffers[channel][static_cast<size_t>(outputReadPos[channel])];
+            outputBuffers[channel][static_cast<size_t>(outputReadPos[channel])] = 0.0f;  // Clear for next overlap-add
+            outputReadPos[channel] = (outputReadPos[channel] + 1) % static_cast<int>(outputBuffers[channel].size());
         }
 
         // Apply dry/wet mix
@@ -274,16 +334,21 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         {
             for (int i = 0; i < numSamples; ++i)
             {
-                channelData[i] = drySignal[i] * (1.0f - currentDryWet) + channelData[i] * currentDryWet;
+                channelData[i] = drySignal[static_cast<size_t>(i)] * (1.0f - currentDryWet) + channelData[i] * currentDryWet;
             }
         }
     }
 }
 
+int FrequencyShifterProcessor::getLatencySamples() const
+{
+    return currentFftSize;
+}
+
 double FrequencyShifterProcessor::getTailLengthSeconds() const
 {
     // Latency from FFT processing
-    return static_cast<double>(FFT_SIZE + HOP_SIZE) / currentSampleRate;
+    return static_cast<double>(currentFftSize + currentHopSize) / currentSampleRate;
 }
 
 juce::AudioProcessorEditor* FrequencyShifterProcessor::createEditor()

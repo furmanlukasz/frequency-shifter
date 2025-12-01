@@ -197,6 +197,17 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     phaseVocoderAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_PHASE_VOCODER, phaseVocoderButton);
 
+    // Setup quality mode combo
+    qualityModeCombo.addItem("Low Latency (~23ms)", 1);
+    qualityModeCombo.addItem("Balanced (~46ms)", 2);
+    qualityModeCombo.addItem("Quality (~93ms)", 3);
+    addAndMakeVisible(qualityModeCombo);
+    qualityModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_QUALITY_MODE, qualityModeCombo);
+
+    setupLabel(qualityModeLabel, "LATENCY");
+    addAndMakeVisible(qualityModeLabel);
+
     // Set editor size
     setSize(500, 400);
 }
@@ -276,7 +287,10 @@ void FrequencyShifterEditor::resized()
     quantizeLabel.setBounds(rightPanelX, 150, labelWidth, 20);
     quantizeSlider.setBounds(rightPanelX + labelWidth, 148, controlWidth, 24);
 
-    phaseVocoderButton.setBounds(rightPanelX, 190, 200, 24);
+    phaseVocoderButton.setBounds(rightPanelX, 185, 200, 24);
+
+    qualityModeLabel.setBounds(rightPanelX, 220, labelWidth, 20);
+    qualityModeCombo.setBounds(rightPanelX + labelWidth, 218, controlWidth, 24);
 
     // Mix controls - bottom panel
     dryWetLabel.setBounds(40, 305, 60, 20);
