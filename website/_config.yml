@@ -1,0 +1,38 @@
+# Jekyll configuration for Frequency Shifter GitHub Pages
+
+title: Harmonic Frequency Shifter
+description: A VST3/AU audio plugin for frequency shifting with musical scale quantization
+baseurl: ""
+url: "https://yourusername.github.io/frequency-shifter"
+
+# Theme
+remote_theme: pages-themes/cayman@v0.2.0
+plugins:
+  - jekyll-remote-theme
+
+# Markdown settings
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+
+# Collections for documentation
+collections:
+  docs:
+    output: true
+    permalink: /docs/:name/
+
+# Default front matter
+defaults:
+  - scope:
+      path: ""
+      type: "docs"
+    values:
+      layout: "default"
