@@ -423,6 +423,7 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // Setup quantize slider
     setupSlider(quantizeSlider, juce::Slider::LinearHorizontal);
     quantizeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    quantizeSlider.setNumDecimalPlacesToDisplay(1);
     addAndMakeVisible(quantizeSlider);
     quantizeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_QUANTIZE_STRENGTH, quantizeSlider);
@@ -457,6 +458,7 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // Setup dry/wet slider
     setupSlider(dryWetSlider, juce::Slider::LinearHorizontal);
     dryWetSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    dryWetSlider.setNumDecimalPlacesToDisplay(1);
     addAndMakeVisible(dryWetSlider);
     dryWetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DRY_WET, dryWetSlider);
@@ -485,6 +487,7 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // Setup drift amount slider
     setupSlider(driftAmountSlider, juce::Slider::LinearHorizontal);
     driftAmountSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    driftAmountSlider.setNumDecimalPlacesToDisplay(1);
     addAndMakeVisible(driftAmountSlider);
     driftAmountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DRIFT_AMOUNT, driftAmountSlider);
@@ -495,6 +498,7 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // Setup drift rate slider
     setupSlider(driftRateSlider, juce::Slider::LinearHorizontal);
     driftRateSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    driftRateSlider.setNumDecimalPlacesToDisplay(2);  // Rate needs 2 decimals (e.g., 0.10 Hz)
     addAndMakeVisible(driftRateSlider);
     driftRateAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DRIFT_RATE, driftRateSlider);
@@ -505,12 +509,99 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // Setup drift mode combo
     driftModeCombo.addItem("LFO", 1);
     driftModeCombo.addItem("Perlin", 2);
+    driftModeCombo.addItem("Stochastic", 3);
     addAndMakeVisible(driftModeCombo);
     driftModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DRIFT_MODE, driftModeCombo);
 
     setupLabel(driftModeLabel, "MODE");
     addAndMakeVisible(driftModeLabel);
+
+    // Setup stochastic type combo
+    stochasticTypeCombo.addItem("Poisson", 1);
+    stochasticTypeCombo.addItem("Random Walk", 2);
+    stochasticTypeCombo.addItem("Jump Diffusion", 3);
+    addAndMakeVisible(stochasticTypeCombo);
+    stochasticTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_STOCHASTIC_TYPE, stochasticTypeCombo);
+
+    setupLabel(stochasticTypeLabel, "TYPE");
+    addAndMakeVisible(stochasticTypeLabel);
+
+    // Setup stochastic density slider
+    setupSlider(stochasticDensitySlider, juce::Slider::LinearHorizontal);
+    stochasticDensitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    stochasticDensitySlider.setNumDecimalPlacesToDisplay(1);
+    addAndMakeVisible(stochasticDensitySlider);
+    stochasticDensityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_STOCHASTIC_DENSITY, stochasticDensitySlider);
+
+    setupLabel(stochasticDensityLabel, "DENSITY");
+    addAndMakeVisible(stochasticDensityLabel);
+
+    // Setup stochastic smoothness slider
+    setupSlider(stochasticSmoothnessSlider, juce::Slider::LinearHorizontal);
+    stochasticSmoothnessSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    stochasticSmoothnessSlider.setNumDecimalPlacesToDisplay(1);
+    addAndMakeVisible(stochasticSmoothnessSlider);
+    stochasticSmoothnessAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_STOCHASTIC_SMOOTHNESS, stochasticSmoothnessSlider);
+
+    setupLabel(stochasticSmoothnessLabel, "SMOOTH");
+    addAndMakeVisible(stochasticSmoothnessLabel);
+
+    // === Spectral Mask Controls ===
+
+    // Mask enabled toggle
+    maskEnabledButton.setButtonText("Mask");
+    maskEnabledButton.setColour(juce::ToggleButton::textColourId, juce::Colour(Colors::text));
+    addAndMakeVisible(maskEnabledButton);
+    maskEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_MASK_ENABLED, maskEnabledButton);
+
+    // Mask mode combo
+    maskModeCombo.addItem("Low Pass", 1);
+    maskModeCombo.addItem("High Pass", 2);
+    maskModeCombo.addItem("Band Pass", 3);
+    addAndMakeVisible(maskModeCombo);
+    maskModeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_MASK_MODE, maskModeCombo);
+
+    setupLabel(maskModeLabel, "MODE");
+    addAndMakeVisible(maskModeLabel);
+
+    // Mask low frequency slider
+    setupSlider(maskLowFreqSlider, juce::Slider::LinearHorizontal);
+    maskLowFreqSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    maskLowFreqSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(maskLowFreqSlider);
+    maskLowFreqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_MASK_LOW_FREQ, maskLowFreqSlider);
+
+    setupLabel(maskLowFreqLabel, "LOW");
+    addAndMakeVisible(maskLowFreqLabel);
+
+    // Mask high frequency slider
+    setupSlider(maskHighFreqSlider, juce::Slider::LinearHorizontal);
+    maskHighFreqSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    maskHighFreqSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(maskHighFreqSlider);
+    maskHighFreqAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_MASK_HIGH_FREQ, maskHighFreqSlider);
+
+    setupLabel(maskHighFreqLabel, "HIGH");
+    addAndMakeVisible(maskHighFreqLabel);
+
+    // Mask transition slider
+    setupSlider(maskTransitionSlider, juce::Slider::LinearHorizontal);
+    maskTransitionSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    maskTransitionSlider.setNumDecimalPlacesToDisplay(1);
+    addAndMakeVisible(maskTransitionSlider);
+    maskTransitionAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_MASK_TRANSITION, maskTransitionSlider);
+
+    setupLabel(maskTransitionLabel, "TRANS");
+    addAndMakeVisible(maskTransitionLabel);
 
     // Setup spectrum analyzer toggle
     spectrumButton.setButtonText("Spectrum");
@@ -528,14 +619,14 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
 
         // Resize window when spectrum is toggled
         if (spectrumVisible)
-            setSize(560, 560);
+            setSize(640, 695);
         else
-            setSize(560, 440);
+            setSize(640, 575);
     };
     addAndMakeVisible(spectrumButton);
 
     // Set editor size
-    setSize(560, 440);
+    setSize(640, 575);
 }
 
 FrequencyShifterEditor::~FrequencyShifterEditor()
@@ -588,15 +679,18 @@ void FrequencyShifterEditor::paint(juce::Graphics& g)
     g.fillRoundedRectangle(20.0f, 65.0f, 200.0f, 200.0f, 10.0f);
 
     // Controls panel
-    g.fillRoundedRectangle(240.0f, 65.0f, 300.0f, 200.0f, 10.0f);
+    g.fillRoundedRectangle(240.0f, 65.0f, 380.0f, 200.0f, 10.0f);
 
-    // Mix & Drift panel
-    g.fillRoundedRectangle(20.0f, 280.0f, 520.0f, 140.0f, 10.0f);
+    // Mix & Drift panel (now taller to fit stochastic row)
+    g.fillRoundedRectangle(20.0f, 280.0f, 600.0f, 150.0f, 10.0f);
+
+    // Mask panel (two rows)
+    g.fillRoundedRectangle(20.0f, 440.0f, 600.0f, 80.0f, 10.0f);
 
     // Spectrum panel (when visible)
     if (spectrumVisible)
     {
-        g.fillRoundedRectangle(20.0f, 430.0f, 520.0f, 120.0f, 10.0f);
+        g.fillRoundedRectangle(20.0f, 530.0f, 600.0f, 120.0f, 10.0f);
     }
 }
 
@@ -608,8 +702,8 @@ void FrequencyShifterEditor::resized()
 
     // Scale controls - right panel
     const int rightPanelX = 260;
-    const int labelWidth = 70;
-    const int controlWidth = 180;
+    const int labelWidth = 80;
+    const int controlWidth = 250;
 
     rootNoteLabel.setBounds(rightPanelX, 80, labelWidth, 20);
     rootNoteCombo.setBounds(rightPanelX + labelWidth, 78, controlWidth, 24);
@@ -626,24 +720,50 @@ void FrequencyShifterEditor::resized()
     qualityModeCombo.setBounds(rightPanelX + labelWidth, 218, controlWidth, 24);
 
     // Mix controls - bottom panel row 1
-    dryWetLabel.setBounds(40, 295, 60, 20);
-    dryWetSlider.setBounds(100, 293, 310, 24);
-    spectrumButton.setBounds(430, 293, 100, 24);
+    dryWetLabel.setBounds(40, 295, 70, 20);
+    dryWetSlider.setBounds(110, 293, 380, 24);
+    spectrumButton.setBounds(510, 293, 100, 24);
 
     // Drift controls - bottom panel row 2
     driftAmountLabel.setBounds(40, 330, 50, 20);
-    driftAmountSlider.setBounds(90, 328, 140, 24);
+    driftAmountSlider.setBounds(90, 328, 160, 24);
 
-    driftRateLabel.setBounds(245, 330, 40, 20);
-    driftRateSlider.setBounds(285, 328, 120, 24);
+    driftRateLabel.setBounds(265, 330, 40, 20);
+    driftRateSlider.setBounds(305, 328, 140, 24);
 
-    driftModeLabel.setBounds(420, 330, 40, 20);
-    driftModeCombo.setBounds(460, 328, 70, 24);
+    driftModeLabel.setBounds(460, 330, 45, 20);
+    driftModeCombo.setBounds(505, 328, 105, 24);
+
+    // Stochastic controls - bottom panel row 3
+    stochasticTypeLabel.setBounds(40, 365, 40, 20);
+    stochasticTypeCombo.setBounds(80, 363, 130, 24);
+
+    stochasticDensityLabel.setBounds(225, 365, 60, 20);
+    stochasticDensitySlider.setBounds(285, 363, 120, 24);
+
+    stochasticSmoothnessLabel.setBounds(420, 365, 60, 20);
+    stochasticSmoothnessSlider.setBounds(480, 363, 130, 24);
+
+    // Mask controls - row 1: toggle, mode, transition
+    maskEnabledButton.setBounds(30, 450, 60, 24);
+
+    maskModeLabel.setBounds(100, 452, 45, 20);
+    maskModeCombo.setBounds(145, 450, 100, 24);
+
+    maskTransitionLabel.setBounds(260, 452, 45, 20);
+    maskTransitionSlider.setBounds(305, 450, 120, 24);
+
+    // Mask controls - row 2: low and high frequency (wider sliders)
+    maskLowFreqLabel.setBounds(30, 487, 35, 20);
+    maskLowFreqSlider.setBounds(65, 485, 250, 24);
+
+    maskHighFreqLabel.setBounds(330, 487, 40, 20);
+    maskHighFreqSlider.setBounds(370, 485, 240, 24);
 
     // Spectrum analyzer (below main controls when visible)
     if (spectrumAnalyzer && spectrumVisible)
     {
-        spectrumAnalyzer->setBounds(20, 435, 520, 110);
+        spectrumAnalyzer->setBounds(20, 535, 600, 110);
     }
 }
 

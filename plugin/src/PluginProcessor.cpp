@@ -19,6 +19,14 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_DRIFT_AMOUNT, this);
     parameters.addParameterListener(PARAM_DRIFT_RATE, this);
     parameters.addParameterListener(PARAM_DRIFT_MODE, this);
+    parameters.addParameterListener(PARAM_STOCHASTIC_TYPE, this);
+    parameters.addParameterListener(PARAM_STOCHASTIC_DENSITY, this);
+    parameters.addParameterListener(PARAM_STOCHASTIC_SMOOTHNESS, this);
+    parameters.addParameterListener(PARAM_MASK_ENABLED, this);
+    parameters.addParameterListener(PARAM_MASK_MODE, this);
+    parameters.addParameterListener(PARAM_MASK_LOW_FREQ, this);
+    parameters.addParameterListener(PARAM_MASK_HIGH_FREQ, this);
+    parameters.addParameterListener(PARAM_MASK_TRANSITION, this);
 
     // Initialize quantizer with default scale (C Major)
     quantizer = std::make_unique<fshift::MusicalQuantizer>(60, fshift::ScaleType::Major);
@@ -36,6 +44,14 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_DRIFT_AMOUNT, this);
     parameters.removeParameterListener(PARAM_DRIFT_RATE, this);
     parameters.removeParameterListener(PARAM_DRIFT_MODE, this);
+    parameters.removeParameterListener(PARAM_STOCHASTIC_TYPE, this);
+    parameters.removeParameterListener(PARAM_STOCHASTIC_DENSITY, this);
+    parameters.removeParameterListener(PARAM_STOCHASTIC_SMOOTHNESS, this);
+    parameters.removeParameterListener(PARAM_MASK_ENABLED, this);
+    parameters.removeParameterListener(PARAM_MASK_MODE, this);
+    parameters.removeParameterListener(PARAM_MASK_LOW_FREQ, this);
+    parameters.removeParameterListener(PARAM_MASK_HIGH_FREQ, this);
+    parameters.removeParameterListener(PARAM_MASK_TRANSITION, this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::createParameterLayout()
@@ -142,12 +158,88 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         1.0f,
         juce::AudioParameterFloatAttributes().withLabel("Hz")));
 
-    // Drift mode (LFO or Perlin noise)
+    // Drift mode (LFO, Perlin, or Stochastic)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ PARAM_DRIFT_MODE, 1 },
         "Drift Mode",
-        juce::StringArray{ "LFO", "Perlin" },
+        juce::StringArray{ "LFO", "Perlin", "Stochastic" },
         0));  // Default to LFO
+
+    // Stochastic type (Poisson, RandomWalk, JumpDiffusion)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ PARAM_STOCHASTIC_TYPE, 1 },
+        "Stochastic Type",
+        juce::StringArray{ "Poisson", "Random Walk", "Jump Diffusion" },
+        0));  // Default to Poisson
+
+    // Stochastic density (0-100%) - how frequently events occur
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_STOCHASTIC_DENSITY, 1 },
+        "Density",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
+        50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Stochastic smoothness (0-100%) - sharp pops to slow swells
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_STOCHASTIC_SMOOTHNESS, 1 },
+        "Smoothness",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
+        50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // === Spectral Mask Parameters ===
+
+    // Mask enabled toggle
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ PARAM_MASK_ENABLED, 1 },
+        "Mask Enabled",
+        false));
+
+    // Mask mode (LowPass, HighPass, BandPass)
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{ PARAM_MASK_MODE, 1 },
+        "Mask Mode",
+        juce::StringArray{ "Low Pass", "High Pass", "Band Pass" },
+        2));  // Default to BandPass
+
+    // Mask low frequency (20-20000 Hz, log scale)
+    auto maskLowFreqRange = juce::NormalisableRange<float>(20.0f, 20000.0f,
+        [](float start, float end, float normalised) {
+            return start * std::pow(end / start, normalised);
+        },
+        [](float start, float end, float value) {
+            return std::log(value / start) / std::log(end / start);
+        });
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_MASK_LOW_FREQ, 1 },
+        "Mask Low",
+        maskLowFreqRange,
+        200.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+
+    // Mask high frequency (20-20000 Hz, log scale)
+    auto maskHighFreqRange = juce::NormalisableRange<float>(20.0f, 20000.0f,
+        [](float start, float end, float normalised) {
+            return start * std::pow(end / start, normalised);
+        },
+        [](float start, float end, float value) {
+            return std::log(value / start) / std::log(end / start);
+        });
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_MASK_HIGH_FREQ, 1 },
+        "Mask High",
+        maskHighFreqRange,
+        5000.0f,
+        juce::AudioParameterFloatAttributes().withLabel("Hz")));
+
+    // Mask transition width (0.1-4 octaves)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_MASK_TRANSITION, 1 },
+        "Mask Transition",
+        juce::NormalisableRange<float>(0.1f, 4.0f, 0.1f),
+        1.0f,
+        juce::AudioParameterFloatAttributes().withLabel("oct")));
 
     return { params.begin(), params.end() };
 }
@@ -212,7 +304,57 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     {
         int mode = static_cast<int>(newValue);
         driftMode.store(mode);
-        driftModulator.setMode(mode == 0 ? fshift::DriftModulator::Mode::LFO : fshift::DriftModulator::Mode::Perlin);
+        if (mode == 0)
+            driftModulator.setMode(fshift::DriftModulator::Mode::LFO);
+        else if (mode == 1)
+            driftModulator.setMode(fshift::DriftModulator::Mode::Perlin);
+        else
+            driftModulator.setMode(fshift::DriftModulator::Mode::Stochastic);
+    }
+    else if (parameterID == PARAM_STOCHASTIC_TYPE)
+    {
+        int type = static_cast<int>(newValue);
+        stochasticType.store(type);
+        driftModulator.setStochasticType(static_cast<fshift::DriftModulator::StochasticType>(type));
+    }
+    else if (parameterID == PARAM_STOCHASTIC_DENSITY)
+    {
+        stochasticDensity.store(newValue / 100.0f);
+        driftModulator.setDensity(newValue / 100.0f);
+    }
+    else if (parameterID == PARAM_STOCHASTIC_SMOOTHNESS)
+    {
+        stochasticSmoothness.store(newValue / 100.0f);
+        driftModulator.setSmoothness(newValue / 100.0f);
+    }
+    else if (parameterID == PARAM_MASK_ENABLED)
+    {
+        maskEnabled.store(newValue > 0.5f);
+    }
+    else if (parameterID == PARAM_MASK_MODE)
+    {
+        int mode = static_cast<int>(newValue);
+        maskMode.store(mode);
+        spectralMask.setMode(static_cast<fshift::SpectralMask::Mode>(mode));
+        maskNeedsUpdate.store(true);
+    }
+    else if (parameterID == PARAM_MASK_LOW_FREQ)
+    {
+        maskLowFreq.store(newValue);
+        spectralMask.setLowFreq(newValue);
+        maskNeedsUpdate.store(true);
+    }
+    else if (parameterID == PARAM_MASK_HIGH_FREQ)
+    {
+        maskHighFreq.store(newValue);
+        spectralMask.setHighFreq(newValue);
+        maskNeedsUpdate.store(true);
+    }
+    else if (parameterID == PARAM_MASK_TRANSITION)
+    {
+        maskTransition.store(newValue);
+        spectralMask.setTransition(newValue);
+        maskNeedsUpdate.store(true);
     }
 }
 
@@ -269,6 +411,10 @@ void FrequencyShifterProcessor::reinitializeDsp()
     driftModulator.prepare(currentSampleRate, currentFftSize / 2);
     driftModulator.reset();
 
+    // Pre-compute spectral mask curve
+    spectralMask.computeMaskCurve(currentSampleRate, currentFftSize);
+    maskNeedsUpdate.store(false);
+
     // Update latency reporting
     setLatencySamples(getLatencySamples());
     needsReinit.store(false);
@@ -310,6 +456,13 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         reinitializeDsp();
     }
 
+    // Update mask curve if parameters changed
+    if (maskNeedsUpdate.load())
+    {
+        spectralMask.computeMaskCurve(currentSampleRate, currentFftSize);
+        maskNeedsUpdate.store(false);
+    }
+
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 
@@ -319,6 +472,7 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const float currentDryWet = dryWetMix.load();
     const bool currentUsePhaseVocoder = usePhaseVocoder.load();
     const float currentDriftAmount = driftAmount.load();
+    const bool currentMaskEnabled = maskEnabled.load();
 
     // Cache current FFT settings for this block
     const int fftSize = currentFftSize;
@@ -363,6 +517,15 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 // Perform STFT
                 auto [magnitude, phase] = stftProcessors[channel]->forward(inputFrame);
 
+                // Save dry spectrum for mask blending
+                std::vector<float> dryMagnitude;
+                std::vector<float> dryPhase;
+                if (currentMaskEnabled)
+                {
+                    dryMagnitude = magnitude;
+                    dryPhase = phase;
+                }
+
                 // Apply phase vocoder if enabled
                 if (currentUsePhaseVocoder && std::abs(currentShiftHz) > 0.01f)
                 {
@@ -401,6 +564,13 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
                     std::tie(magnitude, phase) = quantizer->quantizeSpectrum(
                         magnitude, phase, currentSampleRate, fftSize, currentQuantizeStrength, driftPtr);
+                }
+
+                // Apply spectral mask (blend wet/dry per frequency bin)
+                if (currentMaskEnabled && !dryMagnitude.empty())
+                {
+                    spectralMask.applyMask(magnitude, dryMagnitude);
+                    spectralMask.applyMaskToPhase(phase, dryPhase);
                 }
 
                 // Store spectrum data for visualization (only from first channel)

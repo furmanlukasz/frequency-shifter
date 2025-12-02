@@ -6,6 +6,7 @@
 #include "dsp/FrequencyShifter.h"
 #include "dsp/MusicalQuantizer.h"
 #include "dsp/DriftModulator.h"
+#include "dsp/SpectralMask.h"
 
 // Size of spectrum data for visualization (half of max FFT size)
 static constexpr int SPECTRUM_SIZE = 2048;
@@ -70,6 +71,14 @@ public:
     static constexpr const char* PARAM_DRIFT_AMOUNT = "driftAmount";
     static constexpr const char* PARAM_DRIFT_RATE = "driftRate";
     static constexpr const char* PARAM_DRIFT_MODE = "driftMode";
+    static constexpr const char* PARAM_STOCHASTIC_TYPE = "stochasticType";
+    static constexpr const char* PARAM_STOCHASTIC_DENSITY = "stochasticDensity";
+    static constexpr const char* PARAM_STOCHASTIC_SMOOTHNESS = "stochasticSmoothness";
+    static constexpr const char* PARAM_MASK_ENABLED = "maskEnabled";
+    static constexpr const char* PARAM_MASK_MODE = "maskMode";
+    static constexpr const char* PARAM_MASK_LOW_FREQ = "maskLowFreq";
+    static constexpr const char* PARAM_MASK_HIGH_FREQ = "maskHighFreq";
+    static constexpr const char* PARAM_MASK_TRANSITION = "maskTransition";
 
     // Quality mode enum - controls FFT size / latency tradeoff
     enum class QualityMode
@@ -88,6 +97,10 @@ public:
     double getSampleRate() const { return currentSampleRate; }
     int getCurrentFFTSize() const { return currentFftSize; }
 
+    // Mask data access for visualization
+    const fshift::SpectralMask& getSpectralMask() const { return spectralMask; }
+    bool isMaskEnabled() const { return maskEnabled.load(); }
+
 private:
     // Create parameter layout
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -105,6 +118,7 @@ private:
     std::array<std::unique_ptr<fshift::FrequencyShifter>, MAX_CHANNELS> frequencyShifters;
     std::unique_ptr<fshift::MusicalQuantizer> quantizer;
     fshift::DriftModulator driftModulator;
+    fshift::SpectralMask spectralMask;
 
     // Processing parameters (atomic for thread safety)
     std::atomic<float> shiftHz{ 0.0f };
@@ -116,7 +130,16 @@ private:
     std::atomic<int> qualityMode{ static_cast<int>(QualityMode::Quality) };
     std::atomic<float> driftAmount{ 0.0f };
     std::atomic<float> driftRate{ 1.0f };
-    std::atomic<int> driftMode{ 0 };  // 0 = LFO, 1 = Perlin
+    std::atomic<int> driftMode{ 0 };  // 0 = LFO, 1 = Perlin, 2 = Stochastic
+    std::atomic<int> stochasticType{ 0 };  // 0 = Poisson, 1 = RandomWalk, 2 = JumpDiffusion
+    std::atomic<float> stochasticDensity{ 0.5f };
+    std::atomic<float> stochasticSmoothness{ 0.5f };
+    std::atomic<bool> maskEnabled{ false };
+    std::atomic<int> maskMode{ 2 };  // 0 = LowPass, 1 = HighPass, 2 = BandPass
+    std::atomic<float> maskLowFreq{ 200.0f };
+    std::atomic<float> maskHighFreq{ 5000.0f };
+    std::atomic<float> maskTransition{ 1.0f };  // Octaves
+    std::atomic<bool> maskNeedsUpdate{ true };
 
     // Processing state
     double currentSampleRate = 44100.0;

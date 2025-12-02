@@ -151,6 +151,19 @@ private:
     juce::Label driftModeLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> driftModeAttachment;
 
+    // Stochastic controls (only active when drift mode is Stochastic)
+    juce::ComboBox stochasticTypeCombo;
+    juce::Label stochasticTypeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> stochasticTypeAttachment;
+
+    juce::Slider stochasticDensitySlider;
+    juce::Label stochasticDensityLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> stochasticDensityAttachment;
+
+    juce::Slider stochasticSmoothnessSlider;
+    juce::Label stochasticSmoothnessLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> stochasticSmoothnessAttachment;
+
     // Manual sync (SliderAttachment doesn't support custom ranges for log scale)
     void sliderValueChanged(juce::Slider* slider) override;
 
@@ -158,6 +171,26 @@ private:
     std::unique_ptr<SpectrumAnalyzer> spectrumAnalyzer;
     juce::ToggleButton spectrumButton;
     bool spectrumVisible = false;
+
+    // Spectral mask controls
+    juce::ToggleButton maskEnabledButton;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> maskEnabledAttachment;
+
+    juce::ComboBox maskModeCombo;
+    juce::Label maskModeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> maskModeAttachment;
+
+    juce::Slider maskLowFreqSlider;
+    juce::Label maskLowFreqLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> maskLowFreqAttachment;
+
+    juce::Slider maskHighFreqSlider;
+    juce::Label maskHighFreqLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> maskHighFreqAttachment;
+
+    juce::Slider maskTransitionSlider;
+    juce::Label maskTransitionLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> maskTransitionAttachment;
 
     // UI colors (for easy customization)
     struct Colors
