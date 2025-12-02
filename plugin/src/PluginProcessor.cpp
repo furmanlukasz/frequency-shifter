@@ -27,6 +27,13 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_MASK_LOW_FREQ, this);
     parameters.addParameterListener(PARAM_MASK_HIGH_FREQ, this);
     parameters.addParameterListener(PARAM_MASK_TRANSITION, this);
+    parameters.addParameterListener(PARAM_DELAY_ENABLED, this);
+    parameters.addParameterListener(PARAM_DELAY_TIME, this);
+    parameters.addParameterListener(PARAM_DELAY_SLOPE, this);
+    parameters.addParameterListener(PARAM_DELAY_FEEDBACK, this);
+    parameters.addParameterListener(PARAM_DELAY_DAMPING, this);
+    parameters.addParameterListener(PARAM_DELAY_MIX, this);
+    parameters.addParameterListener(PARAM_DELAY_GAIN, this);
 
     // Initialize quantizer with default scale (C Major)
     quantizer = std::make_unique<fshift::MusicalQuantizer>(60, fshift::ScaleType::Major);
@@ -52,6 +59,13 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_MASK_LOW_FREQ, this);
     parameters.removeParameterListener(PARAM_MASK_HIGH_FREQ, this);
     parameters.removeParameterListener(PARAM_MASK_TRANSITION, this);
+    parameters.removeParameterListener(PARAM_DELAY_ENABLED, this);
+    parameters.removeParameterListener(PARAM_DELAY_TIME, this);
+    parameters.removeParameterListener(PARAM_DELAY_SLOPE, this);
+    parameters.removeParameterListener(PARAM_DELAY_FEEDBACK, this);
+    parameters.removeParameterListener(PARAM_DELAY_DAMPING, this);
+    parameters.removeParameterListener(PARAM_DELAY_MIX, this);
+    parameters.removeParameterListener(PARAM_DELAY_GAIN, this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::createParameterLayout()
@@ -241,6 +255,69 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         1.0f,
         juce::AudioParameterFloatAttributes().withLabel("oct")));
 
+    // === Spectral Delay Parameters ===
+
+    // Delay enabled toggle
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ PARAM_DELAY_ENABLED, 1 },
+        "Delay Enabled",
+        false));
+
+    // Delay time (10-2000 ms, log scale)
+    auto delayTimeRange = juce::NormalisableRange<float>(10.0f, 2000.0f,
+        [](float start, float end, float normalised) {
+            return start * std::pow(end / start, normalised);
+        },
+        [](float start, float end, float value) {
+            return std::log(value / start) / std::log(end / start);
+        });
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_DELAY_TIME, 1 },
+        "Delay Time",
+        delayTimeRange,
+        200.0f,
+        juce::AudioParameterFloatAttributes().withLabel("ms")));
+
+    // Delay frequency slope (-100 to +100%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_DELAY_SLOPE, 1 },
+        "Freq Slope",
+        juce::NormalisableRange<float>(-100.0f, 100.0f, 1.0f),
+        0.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Delay feedback (0-95%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_DELAY_FEEDBACK, 1 },
+        "Feedback",
+        juce::NormalisableRange<float>(0.0f, 95.0f, 0.1f),
+        30.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Delay damping (0-100%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_DELAY_DAMPING, 1 },
+        "Damping",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
+        30.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Delay mix (0-100%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_DELAY_MIX, 1 },
+        "Delay Mix",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
+        50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // Delay gain (-12 to +24 dB)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_DELAY_GAIN, 1 },
+        "Delay Gain",
+        juce::NormalisableRange<float>(-12.0f, 24.0f, 0.1f),
+        0.0f,
+        juce::AudioParameterFloatAttributes().withLabel("dB")));
+
     return { params.begin(), params.end() };
 }
 
@@ -356,6 +433,46 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
         spectralMask.setTransition(newValue);
         maskNeedsUpdate.store(true);
     }
+    else if (parameterID == PARAM_DELAY_ENABLED)
+    {
+        delayEnabled.store(newValue > 0.5f);
+    }
+    else if (parameterID == PARAM_DELAY_TIME)
+    {
+        delayTime.store(newValue);
+        for (auto& delay : spectralDelays)
+            delay.setDelayTime(newValue);
+    }
+    else if (parameterID == PARAM_DELAY_SLOPE)
+    {
+        delaySlope.store(newValue);
+        for (auto& delay : spectralDelays)
+            delay.setFrequencySlope(newValue);
+    }
+    else if (parameterID == PARAM_DELAY_FEEDBACK)
+    {
+        delayFeedback.store(newValue);
+        for (auto& delay : spectralDelays)
+            delay.setFeedback(newValue / 100.0f);
+    }
+    else if (parameterID == PARAM_DELAY_DAMPING)
+    {
+        delayDamping.store(newValue);
+        for (auto& delay : spectralDelays)
+            delay.setDamping(newValue);
+    }
+    else if (parameterID == PARAM_DELAY_MIX)
+    {
+        delayMix.store(newValue);
+        for (auto& delay : spectralDelays)
+            delay.setMix(newValue);
+    }
+    else if (parameterID == PARAM_DELAY_GAIN)
+    {
+        delayGain.store(newValue);
+        for (auto& delay : spectralDelays)
+            delay.setGain(newValue);
+    }
 }
 
 void FrequencyShifterProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -415,6 +532,18 @@ void FrequencyShifterProcessor::reinitializeDsp()
     spectralMask.computeMaskCurve(currentSampleRate, currentFftSize);
     maskNeedsUpdate.store(false);
 
+    // Prepare spectral delays
+    for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+    {
+        spectralDelays[static_cast<size_t>(ch)].prepare(currentSampleRate, currentFftSize, currentHopSize);
+        spectralDelays[static_cast<size_t>(ch)].setDelayTime(delayTime.load());
+        spectralDelays[static_cast<size_t>(ch)].setFrequencySlope(delaySlope.load());
+        spectralDelays[static_cast<size_t>(ch)].setFeedback(delayFeedback.load() / 100.0f);
+        spectralDelays[static_cast<size_t>(ch)].setDamping(delayDamping.load());
+        spectralDelays[static_cast<size_t>(ch)].setMix(delayMix.load());
+        spectralDelays[static_cast<size_t>(ch)].setGain(delayGain.load());
+    }
+
     // Update latency reporting
     setLatencySamples(getLatencySamples());
     needsReinit.store(false);
@@ -473,6 +602,7 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const bool currentUsePhaseVocoder = usePhaseVocoder.load();
     const float currentDriftAmount = driftAmount.load();
     const bool currentMaskEnabled = maskEnabled.load();
+    const bool currentDelayEnabled = delayEnabled.load();
 
     // Cache current FFT settings for this block
     const int fftSize = currentFftSize;
@@ -571,6 +701,12 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 {
                     spectralMask.applyMask(magnitude, dryMagnitude);
                     spectralMask.applyMaskToPhase(phase, dryPhase);
+                }
+
+                // Apply spectral delay (frequency-dependent delay)
+                if (currentDelayEnabled)
+                {
+                    spectralDelays[static_cast<size_t>(channel)].process(magnitude, phase);
                 }
 
                 // Store spectrum data for visualization (only from first channel)

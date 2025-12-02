@@ -192,6 +192,34 @@ private:
     juce::Label maskTransitionLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> maskTransitionAttachment;
 
+    // Spectral delay controls
+    juce::ToggleButton delayEnabledButton;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> delayEnabledAttachment;
+
+    juce::Slider delayTimeSlider;
+    juce::Label delayTimeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayTimeAttachment;
+
+    juce::Slider delaySlopeSlider;
+    juce::Label delaySlopeLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delaySlopeAttachment;
+
+    juce::Slider delayFeedbackSlider;
+    juce::Label delayFeedbackLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayFeedbackAttachment;
+
+    juce::Slider delayDampingSlider;
+    juce::Label delayDampingLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayDampingAttachment;
+
+    juce::Slider delayMixSlider;
+    juce::Label delayMixLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayMixAttachment;
+
+    juce::Slider delayGainSlider;
+    juce::Label delayGainLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> delayGainAttachment;
+
     // UI colors (for easy customization)
     struct Colors
     {

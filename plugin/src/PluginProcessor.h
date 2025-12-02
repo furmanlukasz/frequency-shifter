@@ -7,6 +7,7 @@
 #include "dsp/MusicalQuantizer.h"
 #include "dsp/DriftModulator.h"
 #include "dsp/SpectralMask.h"
+#include "dsp/SpectralDelay.h"
 
 // Size of spectrum data for visualization (half of max FFT size)
 static constexpr int SPECTRUM_SIZE = 2048;
@@ -79,6 +80,13 @@ public:
     static constexpr const char* PARAM_MASK_LOW_FREQ = "maskLowFreq";
     static constexpr const char* PARAM_MASK_HIGH_FREQ = "maskHighFreq";
     static constexpr const char* PARAM_MASK_TRANSITION = "maskTransition";
+    static constexpr const char* PARAM_DELAY_ENABLED = "delayEnabled";
+    static constexpr const char* PARAM_DELAY_TIME = "delayTime";
+    static constexpr const char* PARAM_DELAY_SLOPE = "delaySlope";
+    static constexpr const char* PARAM_DELAY_FEEDBACK = "delayFeedback";
+    static constexpr const char* PARAM_DELAY_DAMPING = "delayDamping";
+    static constexpr const char* PARAM_DELAY_MIX = "delayMix";
+    static constexpr const char* PARAM_DELAY_GAIN = "delayGain";
 
     // Quality mode enum - controls FFT size / latency tradeoff
     enum class QualityMode
@@ -119,6 +127,7 @@ private:
     std::unique_ptr<fshift::MusicalQuantizer> quantizer;
     fshift::DriftModulator driftModulator;
     fshift::SpectralMask spectralMask;
+    std::array<fshift::SpectralDelay, MAX_CHANNELS> spectralDelays;
 
     // Processing parameters (atomic for thread safety)
     std::atomic<float> shiftHz{ 0.0f };
@@ -140,6 +149,13 @@ private:
     std::atomic<float> maskHighFreq{ 5000.0f };
     std::atomic<float> maskTransition{ 1.0f };  // Octaves
     std::atomic<bool> maskNeedsUpdate{ true };
+    std::atomic<bool> delayEnabled{ false };
+    std::atomic<float> delayTime{ 200.0f };
+    std::atomic<float> delaySlope{ 0.0f };
+    std::atomic<float> delayFeedback{ 30.0f };
+    std::atomic<float> delayDamping{ 30.0f };
+    std::atomic<float> delayMix{ 50.0f };
+    std::atomic<float> delayGain{ 0.0f };  // dB
 
     // Processing state
     double currentSampleRate = 44100.0;

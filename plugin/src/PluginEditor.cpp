@@ -603,6 +603,81 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     setupLabel(maskTransitionLabel, "TRANS");
     addAndMakeVisible(maskTransitionLabel);
 
+    // === Spectral Delay Controls ===
+
+    // Delay enabled toggle
+    delayEnabledButton.setButtonText("Delay");
+    delayEnabledButton.setColour(juce::ToggleButton::textColourId, juce::Colour(Colors::text));
+    addAndMakeVisible(delayEnabledButton);
+    delayEnabledAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_ENABLED, delayEnabledButton);
+
+    // Delay time slider
+    setupSlider(delayTimeSlider, juce::Slider::LinearHorizontal);
+    delayTimeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 55, 20);
+    delayTimeSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(delayTimeSlider);
+    delayTimeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_TIME, delayTimeSlider);
+
+    setupLabel(delayTimeLabel, "TIME");
+    addAndMakeVisible(delayTimeLabel);
+
+    // Delay slope slider
+    setupSlider(delaySlopeSlider, juce::Slider::LinearHorizontal);
+    delaySlopeSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    delaySlopeSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(delaySlopeSlider);
+    delaySlopeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_SLOPE, delaySlopeSlider);
+
+    setupLabel(delaySlopeLabel, "SLOPE");
+    addAndMakeVisible(delaySlopeLabel);
+
+    // Delay feedback slider
+    setupSlider(delayFeedbackSlider, juce::Slider::LinearHorizontal);
+    delayFeedbackSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    delayFeedbackSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(delayFeedbackSlider);
+    delayFeedbackAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_FEEDBACK, delayFeedbackSlider);
+
+    setupLabel(delayFeedbackLabel, "FDBK");
+    addAndMakeVisible(delayFeedbackLabel);
+
+    // Delay damping slider
+    setupSlider(delayDampingSlider, juce::Slider::LinearHorizontal);
+    delayDampingSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    delayDampingSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(delayDampingSlider);
+    delayDampingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_DAMPING, delayDampingSlider);
+
+    setupLabel(delayDampingLabel, "DAMP");
+    addAndMakeVisible(delayDampingLabel);
+
+    // Delay mix slider
+    setupSlider(delayMixSlider, juce::Slider::LinearHorizontal);
+    delayMixSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    delayMixSlider.setNumDecimalPlacesToDisplay(0);
+    addAndMakeVisible(delayMixSlider);
+    delayMixAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_MIX, delayMixSlider);
+
+    setupLabel(delayMixLabel, "MIX");
+    addAndMakeVisible(delayMixLabel);
+
+    // Delay gain slider
+    setupSlider(delayGainSlider, juce::Slider::LinearHorizontal);
+    delayGainSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    delayGainSlider.setNumDecimalPlacesToDisplay(1);
+    addAndMakeVisible(delayGainSlider);
+    delayGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DELAY_GAIN, delayGainSlider);
+
+    setupLabel(delayGainLabel, "GAIN");
+    addAndMakeVisible(delayGainLabel);
+
     // Setup spectrum analyzer toggle
     spectrumButton.setButtonText("Spectrum");
     spectrumButton.setColour(juce::ToggleButton::textColourId, juce::Colour(Colors::text));
@@ -619,14 +694,14 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
 
         // Resize window when spectrum is toggled
         if (spectrumVisible)
-            setSize(640, 695);
+            setSize(640, 770);
         else
-            setSize(640, 575);
+            setSize(640, 610);
     };
     addAndMakeVisible(spectrumButton);
 
     // Set editor size
-    setSize(640, 575);
+    setSize(640, 610);
 }
 
 FrequencyShifterEditor::~FrequencyShifterEditor()
@@ -687,10 +762,13 @@ void FrequencyShifterEditor::paint(juce::Graphics& g)
     // Mask panel (two rows)
     g.fillRoundedRectangle(20.0f, 440.0f, 600.0f, 80.0f, 10.0f);
 
+    // Delay panel (two rows)
+    g.fillRoundedRectangle(20.0f, 530.0f, 600.0f, 70.0f, 10.0f);
+
     // Spectrum panel (when visible)
     if (spectrumVisible)
     {
-        g.fillRoundedRectangle(20.0f, 530.0f, 600.0f, 120.0f, 10.0f);
+        g.fillRoundedRectangle(20.0f, 610.0f, 600.0f, 150.0f, 10.0f);
     }
 }
 
@@ -760,10 +838,32 @@ void FrequencyShifterEditor::resized()
     maskHighFreqLabel.setBounds(330, 487, 40, 20);
     maskHighFreqSlider.setBounds(370, 485, 240, 24);
 
+    // Delay controls - row 1: toggle, time, slope
+    delayEnabledButton.setBounds(30, 540, 60, 24);
+
+    delayTimeLabel.setBounds(100, 542, 40, 20);
+    delayTimeSlider.setBounds(140, 540, 140, 24);
+
+    delaySlopeLabel.setBounds(295, 542, 45, 20);
+    delaySlopeSlider.setBounds(340, 540, 120, 24);
+
+    delayMixLabel.setBounds(475, 542, 30, 20);
+    delayMixSlider.setBounds(505, 540, 105, 24);
+
+    // Delay controls - row 2: feedback, damping, gain
+    delayFeedbackLabel.setBounds(30, 572, 40, 20);
+    delayFeedbackSlider.setBounds(70, 570, 120, 24);
+
+    delayDampingLabel.setBounds(200, 572, 45, 20);
+    delayDampingSlider.setBounds(245, 570, 120, 24);
+
+    delayGainLabel.setBounds(380, 572, 40, 20);
+    delayGainSlider.setBounds(420, 570, 120, 24);
+
     // Spectrum analyzer (below main controls when visible)
     if (spectrumAnalyzer && spectrumVisible)
     {
-        spectrumAnalyzer->setBounds(20, 535, 600, 110);
+        spectrumAnalyzer->setBounds(20, 615, 600, 145);
     }
 }
 
