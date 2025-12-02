@@ -138,10 +138,6 @@ private:
     juce::Label qualityModeLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> qualityModeAttachment;
 
-    // Log scale toggle for frequency shift
-    juce::ToggleButton logScaleButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> logScaleAttachment;
-
     // Drift controls (for organic/imperfect quantization)
     juce::Slider driftAmountSlider;
     juce::Label driftAmountLabel;
@@ -155,12 +151,8 @@ private:
     juce::Label driftModeLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> driftModeAttachment;
 
-    // Manual sync for log mode (SliderAttachment doesn't support custom ranges)
-    bool isLogModeActive = false;
+    // Manual sync (SliderAttachment doesn't support custom ranges for log scale)
     void sliderValueChanged(juce::Slider* slider) override;
-
-    // Update slider range based on log/linear mode
-    void updateShiftSliderRange();
 
     // Spectrum analyzer
     std::unique_ptr<SpectrumAnalyzer> spectrumAnalyzer;

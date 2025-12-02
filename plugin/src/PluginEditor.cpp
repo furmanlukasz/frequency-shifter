@@ -371,12 +371,51 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
 {
     setLookAndFeel(&modernLookAndFeel);
 
-    // Setup main shift slider
+    // Setup main shift slider with logarithmic scale (always on)
     setupSlider(shiftSlider, juce::Slider::RotaryHorizontalVerticalDrag);
     shiftSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+
+    // Set up symmetric log scale for the shift knob
+    auto rangeToValue = [](double /*rangeStart*/, double /*rangeEnd*/, double normalised) -> double
+    {
+        // Map from 0..1 to -1..1
+        double symNorm = normalised * 2.0 - 1.0;
+        double sign = symNorm >= 0.0 ? 1.0 : -1.0;
+        double absNorm = std::abs(symNorm);
+        constexpr double logScale = 10.0;
+        constexpr double maxShift = 20000.0;
+        double logMax = std::log(1.0 + maxShift / logScale);
+        double absVal = logScale * (std::exp(absNorm * logMax) - 1.0);
+        return sign * absVal;
+    };
+
+    auto valueToRange = [](double /*rangeStart*/, double /*rangeEnd*/, double value) -> double
+    {
+        double sign = value >= 0.0 ? 1.0 : -1.0;
+        double absVal = std::abs(value);
+        constexpr double logScale = 10.0;
+        constexpr double maxShift = 20000.0;
+        double logMax = std::log(1.0 + maxShift / logScale);
+        double normalized = sign * std::log(1.0 + absVal / logScale) / logMax;
+        // Map from -1..1 to 0..1
+        return (normalized + 1.0) * 0.5;
+    };
+
+    auto snapToLegalValue = [](double /*rangeStart*/, double /*rangeEnd*/, double value) -> double
+    {
+        // Snap to 0.1 Hz resolution for small values, 1 Hz for larger
+        if (std::abs(value) < 100.0)
+            return std::round(value * 10.0) / 10.0;
+        return std::round(value);
+    };
+
+    shiftSlider.setNormalisableRange(
+        juce::NormalisableRange<double>(-20000.0, 20000.0, rangeToValue, valueToRange, snapToLegalValue));
+
     addAndMakeVisible(shiftSlider);
-    shiftAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_SHIFT_HZ, shiftSlider);
+
+    // Add slider listener for manual sync (no attachment - we sync manually due to custom range)
+    shiftSlider.addListener(this);
 
     setupLabel(shiftLabel, "SHIFT (Hz)");
     addAndMakeVisible(shiftLabel);
@@ -443,17 +482,6 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     setupLabel(qualityModeLabel, "LATENCY");
     addAndMakeVisible(qualityModeLabel);
 
-    // Setup log scale toggle (placed below shift knob)
-    logScaleButton.setButtonText("Log");
-    logScaleButton.setColour(juce::ToggleButton::textColourId, juce::Colour(Colors::text));
-    logScaleButton.onClick = [this]() { updateShiftSliderRange(); };
-    addAndMakeVisible(logScaleButton);
-    logScaleAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_LOG_SCALE, logScaleButton);
-
-    // Add slider listener for manual sync in log mode
-    shiftSlider.addListener(this);
-
     // Setup drift amount slider
     setupSlider(driftAmountSlider, juce::Slider::LinearHorizontal);
     driftAmountSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
@@ -500,14 +528,14 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
 
         // Resize window when spectrum is toggled
         if (spectrumVisible)
-            setSize(500, 560);
+            setSize(560, 560);
         else
-            setSize(500, 440);
+            setSize(560, 440);
     };
     addAndMakeVisible(spectrumButton);
 
     // Set editor size
-    setSize(500, 440);
+    setSize(560, 440);
 }
 
 FrequencyShifterEditor::~FrequencyShifterEditor()
@@ -560,15 +588,15 @@ void FrequencyShifterEditor::paint(juce::Graphics& g)
     g.fillRoundedRectangle(20.0f, 65.0f, 200.0f, 200.0f, 10.0f);
 
     // Controls panel
-    g.fillRoundedRectangle(240.0f, 65.0f, 240.0f, 200.0f, 10.0f);
+    g.fillRoundedRectangle(240.0f, 65.0f, 300.0f, 200.0f, 10.0f);
 
     // Mix & Drift panel
-    g.fillRoundedRectangle(20.0f, 280.0f, 460.0f, 140.0f, 10.0f);
+    g.fillRoundedRectangle(20.0f, 280.0f, 520.0f, 140.0f, 10.0f);
 
     // Spectrum panel (when visible)
     if (spectrumVisible)
     {
-        g.fillRoundedRectangle(20.0f, 430.0f, 460.0f, 120.0f, 10.0f);
+        g.fillRoundedRectangle(20.0f, 430.0f, 520.0f, 120.0f, 10.0f);
     }
 }
 
@@ -576,13 +604,12 @@ void FrequencyShifterEditor::resized()
 {
     // Main shift knob - large, centered in left panel
     shiftSlider.setBounds(45, 85, 150, 150);
-    shiftLabel.setBounds(45, 235, 100, 20);
-    logScaleButton.setBounds(145, 235, 50, 20);
+    shiftLabel.setBounds(45, 235, 150, 20);
 
     // Scale controls - right panel
     const int rightPanelX = 260;
-    const int labelWidth = 60;
-    const int controlWidth = 150;
+    const int labelWidth = 70;
+    const int controlWidth = 180;
 
     rootNoteLabel.setBounds(rightPanelX, 80, labelWidth, 20);
     rootNoteCombo.setBounds(rightPanelX + labelWidth, 78, controlWidth, 24);
@@ -600,62 +627,32 @@ void FrequencyShifterEditor::resized()
 
     // Mix controls - bottom panel row 1
     dryWetLabel.setBounds(40, 295, 60, 20);
-    dryWetSlider.setBounds(100, 293, 260, 24);
-    spectrumButton.setBounds(370, 293, 100, 24);
+    dryWetSlider.setBounds(100, 293, 310, 24);
+    spectrumButton.setBounds(430, 293, 100, 24);
 
     // Drift controls - bottom panel row 2
     driftAmountLabel.setBounds(40, 330, 50, 20);
-    driftAmountSlider.setBounds(90, 328, 120, 24);
+    driftAmountSlider.setBounds(90, 328, 140, 24);
 
-    driftRateLabel.setBounds(220, 330, 40, 20);
-    driftRateSlider.setBounds(260, 328, 100, 24);
+    driftRateLabel.setBounds(245, 330, 40, 20);
+    driftRateSlider.setBounds(285, 328, 120, 24);
 
-    driftModeLabel.setBounds(370, 330, 40, 20);
-    driftModeCombo.setBounds(410, 328, 60, 24);
-
-    // Drift section label
-    // (drawn in paint if needed)
+    driftModeLabel.setBounds(420, 330, 40, 20);
+    driftModeCombo.setBounds(460, 328, 70, 24);
 
     // Spectrum analyzer (below main controls when visible)
     if (spectrumAnalyzer && spectrumVisible)
     {
-        spectrumAnalyzer->setBounds(20, 435, 460, 110);
+        spectrumAnalyzer->setBounds(20, 435, 520, 110);
     }
-}
-
-// Symmetric log transform: sign(x) * log(1 + |x|/scale) / log(1 + max/scale)
-// This gives fine control near 0 and coarser control at extremes
-// Scale of 10 means: 0-10 Hz uses about 1/6 of the knob travel from center
-static constexpr double LOG_SCALE = 10.0;
-static constexpr double MAX_SHIFT = 20000.0;
-
-static double symLogTransform(double value)
-{
-    double sign = value >= 0.0 ? 1.0 : -1.0;
-    double absVal = std::abs(value);
-    double logMax = std::log(1.0 + MAX_SHIFT / LOG_SCALE);
-    double normalized = sign * std::log(1.0 + absVal / LOG_SCALE) / logMax;
-    // Map from -1..1 to 0..1
-    return (normalized + 1.0) * 0.5;
-}
-
-static double symLogInverse(double normalized)
-{
-    // Map from 0..1 to -1..1
-    double symNorm = normalized * 2.0 - 1.0;
-    double sign = symNorm >= 0.0 ? 1.0 : -1.0;
-    double absNorm = std::abs(symNorm);
-    double logMax = std::log(1.0 + MAX_SHIFT / LOG_SCALE);
-    double absVal = LOG_SCALE * (std::exp(absNorm * logMax) - 1.0);
-    return sign * absVal;
 }
 
 void FrequencyShifterEditor::sliderValueChanged(juce::Slider* slider)
 {
-    // Only handle manual sync when in log mode (attachment is disconnected)
-    if (slider == &shiftSlider && isLogModeActive)
+    if (slider == &shiftSlider)
     {
-        // Get the slider value and update the parameter directly
+        // Manual sync: Get the slider value and update the parameter directly
+        // (SliderAttachment doesn't work with custom log scale ranges)
         float value = static_cast<float>(shiftSlider.getValue());
         auto* param = audioProcessor.getValueTreeState().getParameter(FrequencyShifterProcessor::PARAM_SHIFT_HZ);
         if (param != nullptr)
@@ -667,71 +664,3 @@ void FrequencyShifterEditor::sliderValueChanged(juce::Slider* slider)
     }
 }
 
-void FrequencyShifterEditor::updateShiftSliderRange()
-{
-    // This is called when log/linear mode changes
-    const bool newLogMode = logScaleButton.getToggleState();
-
-    // If mode didn't change, nothing to do
-    if (newLogMode == isLogModeActive)
-        return;
-
-    // Get current parameter value
-    auto* param = audioProcessor.getValueTreeState().getParameter(FrequencyShifterProcessor::PARAM_SHIFT_HZ);
-    float currentValue = 0.0f;
-    if (param != nullptr)
-    {
-        // Denormalize from 0-1 to -20000..20000
-        currentValue = param->getValue() * 40000.0f - 20000.0f;
-    }
-
-    if (newLogMode)
-    {
-        // Switching TO log mode
-        // Detach the SliderAttachment (it doesn't support custom ranges)
-        shiftAttachment.reset();
-
-        // Set up custom symmetric log range
-        auto rangeToValue = [](double /*rangeStart*/, double /*rangeEnd*/, double normalised) -> double
-        {
-            return symLogInverse(normalised);
-        };
-
-        auto valueToRange = [](double /*rangeStart*/, double /*rangeEnd*/, double value) -> double
-        {
-            return symLogTransform(value);
-        };
-
-        auto snapToLegalValue = [](double /*rangeStart*/, double /*rangeEnd*/, double value) -> double
-        {
-            // Snap to 0.1 Hz resolution for small values, 1 Hz for larger
-            if (std::abs(value) < 100.0)
-                return std::round(value * 10.0) / 10.0;
-            return std::round(value);
-        };
-
-        shiftSlider.setNormalisableRange(
-            juce::NormalisableRange<double>(-MAX_SHIFT, MAX_SHIFT, rangeToValue, valueToRange, snapToLegalValue));
-
-        // Set the current value
-        shiftSlider.setValue(currentValue, juce::dontSendNotification);
-
-        isLogModeActive = true;
-    }
-    else
-    {
-        // Switching TO linear mode
-        // First set linear range
-        shiftSlider.setNormalisableRange(
-            juce::NormalisableRange<double>(-20000.0, 20000.0, 1.0));
-
-        // Restore value before reattaching
-        shiftSlider.setValue(currentValue, juce::dontSendNotification);
-
-        // Reattach - this will sync properly with linear range
-        shiftAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_SHIFT_HZ, shiftSlider);
-
-        isLogModeActive = false;
-    }
-}
