@@ -3,7 +3,7 @@
 title: Harmonic Frequency Shifter
 description: A VST3/AU audio plugin for frequency shifting with musical scale quantization
 baseurl: ""
-url: "https://ludzeller.github.io/frequency-shifter"
+url: "https://frequency-shifter.datalabio.xyz"
 
 # Theme
 remote_theme: pages-themes/cayman@v0.2.0
