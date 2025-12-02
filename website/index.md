@@ -27,7 +27,7 @@ Unlike pitch shifting (which preserves harmonic relationships), frequency shifti
 
 ## Quick Start
 
-1. **Download** the plugin from the [Releases page](https://github.com/yourusername/frequency-shifter/releases)
+1. **Download** the plugin from the [Releases page](https://github.com/ludzeller/frequency-shifter/releases)
 2. **Install** the VST3 or AU to your plugin folder
 3. **Load** in your DAW and start experimenting!
 
@@ -54,9 +54,9 @@ Get the latest release for your platform:
 
 | Platform | Format | Download |
 |----------|--------|----------|
-| macOS | VST3 | [Download](https://github.com/yourusername/frequency-shifter/releases/latest) |
-| macOS | AU | [Download](https://github.com/yourusername/frequency-shifter/releases/latest) |
-| Windows | VST3 | [Download](https://github.com/yourusername/frequency-shifter/releases/latest) |
+| macOS | VST3 | [Download](https://github.com/ludzeller/frequency-shifter/releases/latest) |
+| macOS | AU | [Download](https://github.com/ludzeller/frequency-shifter/releases/latest) |
+| Windows | VST3 | [Download](https://github.com/ludzeller/frequency-shifter/releases/latest) |
 
 ## How It Works
 
@@ -112,7 +112,7 @@ For complete mathematical details, see [Algorithm Documentation](algorithm.html)
 
 ## Source Code
 
-This project is open source! Check out the [GitHub repository](https://github.com/yourusername/frequency-shifter) to:
+This project is open source! Check out the [GitHub repository](https://github.com/ludzeller/frequency-shifter) to:
 
 - Browse the source code
 - Report issues
@@ -132,4 +132,4 @@ Based on established DSP techniques:
 
 ---
 
-**Questions?** Open an issue on [GitHub](https://github.com/yourusername/frequency-shifter/issues).
+**Questions?** Open an issue on [GitHub](https://github.com/ludzeller/frequency-shifter/issues).

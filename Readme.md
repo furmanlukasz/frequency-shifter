@@ -1,346 +1,220 @@
 # Harmonic-Preserving Frequency Shifter
 
-A Python library for frequency shifting audio while maintaining musical harmonic relationships through intelligent scale quantization.
+A VST3/AU audio plugin for frequency shifting with musical scale quantization.
 
-## Overview
+![Plugin Screenshot](plugin.png)
 
-This project implements a novel audio effect that combines:
+## Download
 
-- **Frequency shifting** (linear Hz offset) - shifts all frequencies by a fixed amount
-- **Musical scale quantization** - snaps shifted frequencies to notes in a musical scale
-- **Phase vocoder** - maintains phase coherence for artifact-free processing
+Get the latest release from the [Releases page](https://github.com/ludzeller/frequency-shifter/releases).
 
-Unlike traditional pitch shifters (which preserve harmonic relationships but change pitch), this tool allows you to shift frequencies linearly while keeping the output musical by quantizing to a chosen scale.
+| Platform | Format | Download |
+|----------|--------|----------|
+| macOS (Universal) | VST3 | [Latest Release](https://github.com/ludzeller/frequency-shifter/releases/latest) |
+| macOS (Universal) | AU | [Latest Release](https://github.com/ludzeller/frequency-shifter/releases/latest) |
+| Windows | VST3 | [Latest Release](https://github.com/ludzeller/frequency-shifter/releases/latest) |
+
+## What It Does
+
+This plugin performs **frequency shifting** - moving all frequencies in your audio by a fixed Hz amount - while keeping the output **musical** through intelligent scale quantization.
+
+Unlike pitch shifting (which preserves harmonic relationships), frequency shifting creates unique, often metallic or otherworldly tones. By adding scale quantization, you get the best of both worlds: the character of frequency shifting with musical coherence.
 
 ## Features
 
-- 🎵 **Musical Scale Support** - Major, minor, pentatonic, blues, and modal scales
-- 🔧 **Adjustable Quantization** - Blend from pure frequency shift to full scale quantization
-- 🎚️ **High-Quality Processing** - Phase vocoder ensures minimal artifacts
-- 📊 **Test-Driven** - Comprehensive test suite with >90% coverage
-- 📈 **Research-Grade** - Based on solid DSP mathematical foundations
+- **Frequency Shift**: ±20,000 Hz range with linear or logarithmic control
+- **Musical Quantization**: Snap frequencies to any musical scale
+- **22 Scale Types**: Major, minor, modes, pentatonic, blues, chromatic, world scales
+- **Phase Vocoder**: High-quality processing with identity phase locking (Laroche & Dolson)
+- **Quality Modes**: Low Latency, Balanced, or Quality presets
+- **Real-time Spectrum Analyzer**: Visualize your frequency content
+- **Dry/Wet Mix**: Blend processed and original signals
+- **Stereo Support**: Full stereo/multi-channel processing
 
 ## Installation
 
-### Using uv (Recommended)
+### macOS
 
+**VST3:**
 ```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# System-wide
+/Library/Audio/Plug-Ins/VST3/
 
-# Clone and install
-git clone https://github.com/yourusername/harmonic-frequency-shifter.git
-cd harmonic-frequency-shifter
-uv venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-uv pip install -e ".[dev,viz]"
+# User only
+~/Library/Audio/Plug-Ins/VST3/
 ```
 
-### Using pip
-
+**AU (Audio Unit):**
 ```bash
-git clone https://github.com/yourusername/harmonic-frequency-shifter.git
-cd harmonic-frequency-shifter
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[dev,viz]"
+# System-wide
+/Library/Audio/Plug-Ins/Components/
+
+# User only
+~/Library/Audio/Plug-Ins/Components/
 ```
 
-## Quick Start
+### Windows
 
-```python
-from harmonic_shifter import HarmonicShifter
-from harmonic_shifter.audio import load_audio, save_audio
-
-# Initialize processor
-processor = HarmonicShifter(
-    sample_rate=44100,
-    fft_size=4096,
-    hop_size=1024
-)
-
-# Set musical scale (C major)
-processor.set_scale(root_midi=60, scale_type='major')
-
-# Load and process audio
-audio, sr = load_audio('input.wav')
-output = processor.process(
-    audio=audio,
-    shift_hz=100,  # Shift up by 100 Hz
-    quantize_strength=1.0  # Full quantization to scale
-)
-
-# Save result
-save_audio('output.wav', output, sr)
+**VST3:**
 ```
-
-## Use Cases
-
-### Creative Sound Design
-
-```python
-# Metallic/robotic vocal effects
-output = processor.process(vocals, shift_hz=150, quantize_strength=0.0)
-
-# Re-harmonize to different scale
-processor.set_scale(root_midi=57, scale_type='minor')  # A minor
-output = processor.process(audio, shift_hz=50, quantize_strength=1.0)
-
-# Subtle detuning/chorus
-output = processor.process(audio, shift_hz=5, quantize_strength=0.5)
-```
-
-### Music Production
-
-```python
-# Shift drums while keeping them in key
-processor.set_scale(root_midi=60, scale_type='pentatonic_minor')
-drums_shifted = processor.process(drums, shift_hz=80, quantize_strength=0.8)
-
-# Create harmonic variations
-for shift in [-100, 0, 100, 200]:
-    variant = processor.process(melody, shift_hz=shift, quantize_strength=1.0)
-    save_audio(f'melody_shift_{shift}.wav', variant, sr)
+C:\Program Files\Common Files\VST3\
 ```
 
 ## Parameters
 
-### HarmonicShifter Parameters
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| **Shift (Hz)** | ±20,000 Hz | Amount to shift frequencies. Positive = up, negative = down |
+| **Quantize** | 0-100% | How strongly to snap to scale notes |
+| **Root Note** | C, C#, D... B | The root of your scale |
+| **Scale** | 22 types | Choose from Major, Minor, Dorian, Pentatonic, Blues, and more |
+| **Dry/Wet** | 0-100% | Mix between original and processed audio |
+| **Quality** | 3 modes | Low Latency (~58ms), Balanced (~116ms), Quality (~232ms) |
 
-|Parameter    |Type|Range                  |Default|Description                 |
-|-------------|----|-----------------------|-------|----------------------------|
-|`sample_rate`|int |8000-192000            |44100  |Audio sample rate           |
-|`fft_size`   |int |1024-8192              |4096   |FFT window size (power of 2)|
-|`hop_size`   |int |256-4096               |1024   |Hop size between frames     |
-|`window`     |str |hann, hamming, blackman|'hann' |Window function             |
+## Creative Tips
 
-### Processing Parameters
+- **Metallic vocals**: Shift by 50-200 Hz with 0% quantization
+- **Re-harmonize**: Use 100% quantization to force audio into a new scale
+- **Subtle detuning**: Small shifts (5-20 Hz) with 50% quantization for chorus-like effects
+- **Robotic sounds**: Large shifts with the Chromatic scale
 
-|Parameter          |Type |Range             |Default|Description                 |
-|-------------------|-----|------------------|-------|----------------------------|
-|`shift_hz`         |float|-1000 to +1000    |0      |Frequency shift amount in Hz|
-|`quantize_strength`|float|0.0-1.0           |1.0    |Scale quantization amount   |
-|`root_midi`        |int  |0-127             |60 (C4)|Root note of scale          |
-|`scale_type`       |str  |major, minor, etc.|'major'|Musical scale               |
+## System Requirements
 
-### Quantization Strength Guide
+- **macOS**: 11.0+ (Intel and Apple Silicon universal binary)
+- **Windows**: Windows 10+
+- **DAW**: Any VST3 or AU compatible host
 
-- **0.0** - Pure frequency shift (inharmonic, metallic)
-- **0.25** - Slight musical pull
-- **0.50** - Balanced between shifted and quantized
-- **0.75** - Mostly musical
-- **1.0** - Fully quantized to scale (harmonic)
+## Building from Source
 
-## Supported Scales
+### Requirements
 
-- **Western:** major, minor, harmonic_minor, melodic_minor
-- **Modes:** dorian, phrygian, lydian, mixolydian, aeolian, locrian
-- **Pentatonic:** pentatonic_major, pentatonic_minor
-- **Blues:** blues
-- **Chromatic:** chromatic
+- CMake 3.22+
+- C++20 compiler (Clang, GCC, or MSVC)
+- Git
 
-See `src/harmonic_shifter/theory/scales.py` for the complete list.
+### Build Steps
 
-## Architecture
+```bash
+# Clone the repository
+git clone https://github.com/ludzeller/frequency-shifter.git
+cd frequency-shifter/plugin
 
-```
-Input Audio
-    ↓
-[STFT] → Magnitude & Phase
-    ↓
-[Frequency Shifter] → Bin reassignment
-    ↓
-[Musical Quantizer] → Scale quantization
-    ↓
-[Phase Vocoder] → Phase coherence
-    ↓
-[ISTFT] → Output Audio
+# Configure
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# Build
+cmake --build build --config Release
+
+# Plugins will be in:
+# build/FrequencyShifter_artefacts/Release/VST3/
+# build/FrequencyShifter_artefacts/Release/AU/  (macOS only)
 ```
 
-## Performance
+### macOS Universal Binary
 
-|FFT Size|Hop Size|Latency|CPU   |Quality  |
-|--------|--------|-------|------|---------|
-|2048    |512     |~58 ms |Low   |Good     |
-|4096    |1024    |~116 ms|Medium|Excellent|
-|8192    |2048    |~232 ms|High  |Best     |
+```bash
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
+```
+
+## Releases
+
+To create a new release:
+
+1. **Tag the version:**
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+2. The GitHub Actions release workflow will automatically:
+   - Build plugins for macOS (VST3, AU) and Windows (VST3)
+   - Create a GitHub Release with downloadable zip files
+
+## Project Structure
+
+```
+frequency-shifter/
+├── plugin/                 # JUCE plugin source
+│   ├── src/
+│   │   ├── PluginProcessor.cpp/h   # Audio processing
+│   │   ├── PluginEditor.cpp/h      # GUI
+│   │   └── dsp/                    # DSP modules
+│   │       ├── STFT.cpp/h
+│   │       ├── PhaseVocoder.cpp/h
+│   │       ├── FrequencyShifter.cpp/h
+│   │       ├── MusicalQuantizer.cpp/h
+│   │       └── Scales.h
+│   └── CMakeLists.txt
+├── website/                # GitHub Pages documentation
+├── docs/                   # Technical documentation
+│   ├── ALGORITHM.md
+│   └── PHASE_VOCODER.md
+├── legacy/                 # Python prototype (reference)
+└── .github/workflows/      # CI/CD
+    ├── build.yml          # Build on push/PR
+    ├── pages.yml          # Deploy documentation
+    └── release.yml        # Create releases
+```
+
+## Algorithm
+
+The plugin uses a sophisticated DSP pipeline:
+
+```
+Audio Input
+    ↓
+[STFT Analysis] → Convert to frequency domain
+    ↓
+[Frequency Shift] → Move all bins by Hz offset
+    ↓
+[Scale Quantization] → Snap to musical notes
+    ↓
+[Phase Vocoder] → Maintain phase coherence
+    ↓
+[ISTFT Synthesis] → Convert back to audio
+```
+
+For detailed algorithm documentation, see:
+- [Algorithm Details](docs/ALGORITHM.md)
+- [Phase Vocoder](docs/PHASE_VOCODER.md)
+- [Mathematical Foundation](MATH_FOUNDATION.md)
 
 ## Documentation
 
-- **[Mathematical Foundation](MATH_FOUNDATION.md)** - Detailed algorithm mathematics
-- **[Project Specification](PROJECT_SPEC.md)** - Complete implementation spec
-- **[API Documentation](docs/API.md)** - Full API reference
-- **[Algorithm Details](docs/ALGORITHM.md)** - Processing pipeline explanation
-- **[Benchmarks](docs/BENCHMARKS.md)** - Performance measurements
+Visit the [GitHub Pages site](https://ludzeller.github.io/frequency-shifter/) for:
+- Full algorithm documentation
+- Parameter guides
+- Technical deep-dives
 
-## Development
-
-### Running Tests
-
-```bash
-# All tests
-pytest
-
-# Unit tests only
-pytest tests/unit/ -v
-
-# With coverage
-pytest --cov=harmonic_shifter --cov-report=html
-
-# Specific test
-pytest tests/unit/test_stft.py::test_perfect_reconstruction
-```
-
-### Code Quality
-
-```bash
-# Format code
-black src/ tests/
-
-# Lint
-ruff check src/ tests/
-
-# Type checking
-mypy src/
-```
-
-### Project Structure
-
-```
-src/harmonic_shifter/
-├── core/              # Core DSP algorithms
-│   ├── stft.py
-│   ├── frequency_shifter.py
-│   ├── quantizer.py
-│   └── phase_vocoder.py
-├── theory/            # Musical theory
-│   ├── scales.py
-│   └── tuning.py
-├── processing/        # Main processor
-│   └── processor.py
-├── audio/             # I/O utilities
-│   └── io.py
-└── utils/             # Validation & visualization
-    ├── validation.py
-    └── visualization.py
-```
-
-## Examples
-
-Check the `examples/` directory for more:
-
-- `basic_usage.py` - Simple frequency shifting
-- `parameter_sweep.py` - Test different parameters
-- `batch_processing.py` - Process multiple files
-
-## Roadmap
-
-### v0.1.0 (Current)
-
-- [x] Core STFT/ISTFT implementation
-- [x] Frequency shifter
-- [x] Musical quantizer
-- [x] Phase vocoder
-- [x] All major scales
-- [x] Test suite (>90% coverage)
-
-### v0.2.0 (Planned)
-
-- [ ] Real-time processing mode
-- [ ] CLI tool
-- [ ] Spectral peak detection
-- [ ] Transient preservation
-- [ ] Multi-channel support
-
-### v1.0.0 (Future)
-
-- [ ] VST/AU plugin (C++ port)
-- [ ] GPU acceleration
-- [ ] Microtonal scales
-- [ ] Advanced harmonic tracking
-
-## Contributing
-
-Contributions are welcome! Areas of interest:
-
-- Additional musical scales (world music, microtonal)
-- Performance optimizations
-- GUI development
-- VST port assistance
-- Documentation improvements
-
-Please ensure:
-
-- Tests pass (`pytest`)
-- Code is formatted (`black src/ tests/`)
-- Type hints are included
-- Documentation is updated
-
-## Known Limitations
-
-1. **Latency** - ~100-230ms depending on FFT size (not suitable for live performance)
-1. **Transients** - Percussive material may smear slightly (FFT artifact)
-1. **Low frequencies** - Bass notes may have coarse quantization (<100 Hz)
-1. **Mono only** - Currently only processes mono audio
-
-## Theory Background
-
-This project implements a hybrid approach:
-
-1. **Frequency Shifting** uses single-sideband modulation in the frequency domain
-1. **Scale Quantization** maps frequencies to nearest musical scale notes
-1. **Phase Vocoder** maintains phase coherence to prevent artifacts
-
-Traditional frequency shifters create inharmonic, metallic sounds. By adding musical quantization, we maintain the frequency-shifting character while keeping the output musical.
-
-See [MATH_FOUNDATION.md](MATH_FOUNDATION.md) for complete mathematical details.
-
-## Research Applications
-
-This algorithm could be useful for:
-
-- Music information retrieval (MIR) research
-- Audio effect development
-- Creative music production tools
-- Sound design for film/games
-- Educational demonstrations of DSP concepts
-
-## Citation
-
-If you use this in academic work, please cite:
-
-```bibtex
-@software{harmonic_frequency_shifter,
-  title={Harmonic-Preserving Frequency Shifter},
-  author={Your Name},
-  year={2025},
-  url={https://github.com/yourusername/harmonic-frequency-shifter}
-}
-```
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Acknowledgments
+## Research References
 
 Based on established DSP techniques:
 
-- Phase vocoder (Laroche & Dolson, 1999)
-- STFT overlap-add (Allen & Rabiner, 1977)
-- Musical scale quantization (original contribution)
+- **Laroche, J., & Dolson, M. (1999)** - "Improved phase vocoder time-scale modification of audio" - Identity phase locking
+- **Zölzer, U. (2011)** - "DAFX: Digital Audio Effects" - STFT/ISTFT, window normalization
+- **Smith, J. O. (2011)** - "Spectral Audio Signal Processing" - Phase vocoder theory
 
-## Support
+## Legacy Python Prototype
 
-- **Issues:** [GitHub Issues](https://github.com/yourusername/harmonic-frequency-shifter/issues)
-- **Documentation:** [Read the Docs](https://harmonic-frequency-shifter.readthedocs.io)
-- **Discussions:** [GitHub Discussions](https://github.com/yourusername/harmonic-frequency-shifter/discussions)
+The `legacy/` folder contains the original Python prototype used for algorithm development and testing. This is kept for reference but the C++ plugin is the production version.
 
------
+## License
 
-**Status:** Alpha (v0.1.0)
-**Python:** 3.11+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please see the [GitHub repository](https://github.com/ludzeller/frequency-shifter) for:
+- Issue reporting
+- Pull requests
+- Feature discussions
+
+---
+
+**Version:** 0.1.0
+**Formats:** VST3, AU
+**Platforms:** macOS, Windows
 **License:** MIT
-**Author:** Your Name
-
-**⭐ Star this repo if you find it useful!**
