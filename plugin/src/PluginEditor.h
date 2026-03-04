@@ -4,47 +4,6 @@
 #include "PluginProcessor.h"
 
 /**
- * SpectrumAnalyzer - Real-time spectrum visualization component.
- *
- * Displays the frequency spectrum of the processed audio signal
- * using data from the FFT processing pipeline.
- */
-class SpectrumAnalyzer : public juce::Component,
-                          private juce::Timer
-{
-public:
-    SpectrumAnalyzer(FrequencyShifterProcessor& processor);
-    ~SpectrumAnalyzer() override;
-
-    void paint(juce::Graphics& g) override;
-    void resized() override;
-
-private:
-    void timerCallback() override;
-
-    FrequencyShifterProcessor& audioProcessor;
-
-    // Spectrum data buffer
-    std::array<float, SPECTRUM_SIZE> spectrumData{};
-
-    // Smoothed display data
-    std::array<float, SPECTRUM_SIZE> smoothedData{};
-
-    // Smoothing factor (0-1, higher = slower decay)
-    static constexpr float smoothingFactor = 0.8f;
-
-    // Auto-scaling state
-    float currentPeakDb = -60.0f;      // Current detected peak level in dB
-    float displayCeilingDb = -10.0f;   // Top of display range (adapts to signal)
-    static constexpr float floorDb = -100.0f;  // Bottom of display range (fixed)
-    static constexpr float peakDecayRate = 0.995f;  // How fast peak detector decays
-    static constexpr float ceilingAttackRate = 0.3f;  // How fast ceiling rises to meet peaks
-    static constexpr float ceilingDecayRate = 0.998f;  // How slowly ceiling falls
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SpectrumAnalyzer)
-};
-
-/**
  * FrequencyShifterEditor - GUI for the Frequency Shifter plugin.
  *
  * "Holy Shifter" - Frequency Shifter with Harmonic Quantisation
@@ -207,11 +166,6 @@ private:
     // Manual sync (SliderAttachment doesn't support custom ranges for log scale)
     void sliderValueChanged(juce::Slider* slider) override;
 
-    // Spectrum analyzer
-    std::unique_ptr<SpectrumAnalyzer> spectrumAnalyzer;
-    juce::ToggleButton spectrumButton;
-    bool spectrumVisible = false;
-
     // Spectral mask controls
     juce::ToggleButton maskEnabledButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> maskEnabledAttachment;
@@ -268,7 +222,7 @@ private:
     juce::ToggleButton stereoDecorrelateToggle;
 
 public:
-    // UI colors - Holy Shifter color scheme (public for SpectrumAnalyzer access)
+    // UI colors - Holy Shifter color scheme
     struct Colors
     {
         // Background colors

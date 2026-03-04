@@ -9,9 +9,6 @@
 #include "dsp/SpectralDelay.h"
 #include "dsp/HilbertShifter.h"
 
-// Size of spectrum data for visualization (half of max FFT size)
-static constexpr int SPECTRUM_SIZE = 2048;
-
 /**
  * FrequencyShifterProcessor - Main audio processor for the Frequency Shifter plugin.
  *
@@ -122,12 +119,6 @@ public:
 
     // Get current latency in samples
     int getLatencySamples() const;
-
-    // Spectrum data access for visualization
-    // Returns true if new data is available
-    bool getSpectrumData(std::array<float, SPECTRUM_SIZE>& data);
-    double getSampleRate() const { return currentSampleRate; }
-    int getCurrentFFTSize() const { return currentFftSizes[0]; }  // Primary FFT size for display
 
     // Mask data access for visualization
     const fshift::SpectralMask& getSpectralMask() const { return spectralMask; }
@@ -380,11 +371,6 @@ private:
         8.0f,     // 2/1
         16.0f     // 4/1
     };
-
-    // Spectrum visualization data (thread-safe FIFO)
-    std::array<float, SPECTRUM_SIZE> spectrumData{};
-    std::atomic<bool> spectrumDataReady{ false };
-    juce::SpinLock spectrumLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FrequencyShifterProcessor)
 };
