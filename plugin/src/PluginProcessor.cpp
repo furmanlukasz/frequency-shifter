@@ -176,11 +176,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
 
     // === LFO Modulation Parameters ===
 
-    // LFO depth (0-5000 Hz or scale degrees)
+    // LFO depth (0-5000 Hz or scale degrees, power curve for fine control at low values)
+    // 40% of slider ≈ 40 Hz, 50% ≈ 130 Hz, 75% ≈ 1100 Hz
+    constexpr float lfoDepthExp = 5.3f;
+    auto lfoDepthRange = juce::NormalisableRange<float>(0.0f, 5000.0f,
+        [](float start, float end, float normalised) {
+            return std::pow(normalised, lfoDepthExp) * (end - start) + start;
+        },
+        [](float start, float end, float value) {
+            return std::pow((value - start) / (end - start), 1.0f / lfoDepthExp);
+        },
+        [](float start, float end, float value) {
+            (void)start; (void)end;
+            return std::round(value * 10.0f) / 10.0f;  // snap to 0.1
+        });
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ PARAM_LFO_DEPTH, 1 },
         "LFO Depth",
-        juce::NormalisableRange<float>(0.0f, 5000.0f, 1.0f),
+        lfoDepthRange,
         0.0f,
         juce::AudioParameterFloatAttributes().withLabel("")));
 
@@ -232,11 +245,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
 
     // === Delay Time LFO Parameters ===
 
-    // Delay LFO depth (0-1000 ms)
+    // Delay LFO depth (0-1000 ms, power curve for fine control at low values)
+    // 40% of slider ≈ 8 ms, 50% ≈ 26 ms, 75% ≈ 220 ms
+    constexpr float dlyLfoDepthExp = 5.3f;
+    auto dlyLfoDepthRange = juce::NormalisableRange<float>(0.0f, 1000.0f,
+        [](float start, float end, float normalised) {
+            return std::pow(normalised, dlyLfoDepthExp) * (end - start) + start;
+        },
+        [](float start, float end, float value) {
+            return std::pow((value - start) / (end - start), 1.0f / dlyLfoDepthExp);
+        },
+        [](float start, float end, float value) {
+            (void)start; (void)end;
+            return std::round(value * 10.0f) / 10.0f;  // snap to 0.1
+        });
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ PARAM_DLY_LFO_DEPTH, 1 },
         "Delay LFO Depth",
-        juce::NormalisableRange<float>(0.0f, 1000.0f, 1.0f),
+        dlyLfoDepthRange,
         0.0f,
         juce::AudioParameterFloatAttributes().withLabel("ms")));
 
@@ -681,6 +707,11 @@ void FrequencyShifterProcessor::prepareToPlay(double sampleRate, int samplesPerB
     float defaultDelaySamples = 200.0f * static_cast<float>(sampleRate) / 1000.0f;
     smoothedDelayTimeSamples.fill(defaultDelaySamples);
 
+    // Initialize LFO depth smoother (~20ms one-pole to prevent clicks on slider jumps)
+    float lfoDepthSmoothMs = 20.0f;
+    lfoDepthSmoothCoeff = std::exp(-1.0f / (static_cast<float>(sampleRate) * lfoDepthSmoothMs / 1000.0f));
+    smoothedLfoDepth = lfoDepth.load();
+
     // Initialize with current quality mode
     reinitializeDsp();
 }
@@ -790,9 +821,10 @@ void FrequencyShifterProcessor::reinitializeDsp()
         dryDelayWritePos[ch] = 0;
     }
 
-    // Reset LFO phase
+    // Reset LFO phase and depth smoother
     lfoPhase = 0.0;
     lastRandomValue = 0.0f;
+    smoothedLfoDepth = lfoDepth.load();
 
     // Prepare quantizer with primary FFT settings for phase continuity (Phase 2A.3)
     if (quantizer)
@@ -1085,8 +1117,10 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const bool currentMaskEnabled = maskEnabled.load();
     const bool currentWarmEnabled = warmEnabled.load();
 
-    // LFO modulation parameters
-    const float currentLfoDepth = lfoDepth.load();
+    // LFO modulation parameters (smooth depth to prevent clicks on slider jumps)
+    const float targetLfoDepth = lfoDepth.load();
+    smoothedLfoDepth = targetLfoDepth + lfoDepthSmoothCoeff * (smoothedLfoDepth - targetLfoDepth);
+    const float currentLfoDepth = smoothedLfoDepth;
     const int currentLfoDepthMode = lfoDepthMode.load();
     const float currentLfoRate = lfoRate.load();
     const bool currentLfoSync = lfoSync.load();

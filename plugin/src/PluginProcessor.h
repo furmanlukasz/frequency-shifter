@@ -312,6 +312,10 @@ private:
     std::array<float, MAX_CHANNELS> smoothedDelayTimeSamples{};
     float delayTimeSmoothCoeff = 0.0f;  // One-pole coefficient (~5ms time constant)
 
+    // One-pole smoother for frequency LFO depth (prevents clicks on slider jumps)
+    float smoothedLfoDepth = 0.0f;
+    float lfoDepthSmoothCoeff = 0.0f;  // ~20ms time constant
+
     // Simple one-pole lowpass for feedback damping
     std::array<float, MAX_CHANNELS> feedbackFilterState{};
     float feedbackFilterCoeff = 0.5f;  // Calculated from damping parameter

@@ -416,7 +416,7 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // === LFO Modulation Controls ===
 
     setupHorizontalSlider(lfoDepthSlider);
-    lfoDepthSlider.setNumDecimalPlacesToDisplay(0);
+    lfoDepthSlider.setNumDecimalPlacesToDisplay(1);
     addAndMakeVisible(lfoDepthSlider);
     lfoDepthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_LFO_DEPTH, lfoDepthSlider);
@@ -557,7 +557,8 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     // === Delay Time LFO Controls ===
 
     setupHorizontalSlider(dlyLfoDepthSlider);
-    dlyLfoDepthSlider.setNumDecimalPlacesToDisplay(0);
+    dlyLfoDepthSlider.setNumDecimalPlacesToDisplay(1);
+    dlyLfoDepthSlider.setTextValueSuffix(" ms");
     addAndMakeVisible(dlyLfoDepthSlider);
     dlyLfoDepthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_DLY_LFO_DEPTH, dlyLfoDepthSlider);
