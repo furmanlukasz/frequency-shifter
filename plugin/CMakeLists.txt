@@ -58,7 +58,7 @@ juce_add_plugin(FrequencyShifter
     FORMATS AU VST3 AUv3 Standalone
 
     # Plugin name
-    PRODUCT_NAME "Holy Shifter v103"
+    PRODUCT_NAME "Holy Shifter v104"
 
     # Plugin characteristics
     IS_SYNTH FALSE

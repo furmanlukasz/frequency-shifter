@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <array>
+#include <algorithm>
 
 namespace fshift {
 
@@ -11,10 +12,14 @@ namespace fshift {
  * Uses allpass filter networks to create quadrature signals (I/Q with 90° phase difference),
  * then applies single sideband modulation for frequency shifting.
  *
- * v95: Upgraded to double precision for allpass filter states and internal processing.
- * This prevents quantization error accumulation in deep feedback loops, which was causing
- * the "digital distortion" artifacts. Double precision maintains phase accuracy through
- * hundreds of feedback iterations.
+ * v104: Upgraded to 8-stage allpass chains with sample-rate adaptive coefficients.
+ * Coefficients generated using the Weaver/Darlington phase-difference network design
+ * with frequency prewarping for bilinear transform accuracy.
+ * Sideband rejection: ~39 dB at 44.1kHz, ~46 dB at 48kHz, ~58+ dB at 88.2kHz+.
+ * (Previous 6-stage design with wrong sign convention had ~0.2 dB rejection.)
+ *
+ * Uses double precision for allpass filter states and internal processing
+ * to prevent quantization error accumulation in deep feedback loops.
  *
  * Advantages over spectral methods:
  * - Zero latency (aside from filter group delay ~10-20 samples)
@@ -24,9 +29,6 @@ namespace fshift {
  * Limitations:
  * - Cannot preserve harmonic relationships (inharmonic shifting)
  * - Best for subtle shifts or creative effects
- *
- * Implementation uses two parallel 6th-order allpass chains with coefficients
- * designed to maintain ~90° phase difference across the audio spectrum (20Hz-20kHz).
  */
 class HilbertShifter
 {
@@ -36,6 +38,7 @@ public:
     void prepare(double sr)
     {
         sampleRate = sr;
+        selectCoefficients(sr);
         reset();
     }
 
@@ -94,8 +97,7 @@ public:
         double sinOsc = std::sin(oscPhase);
 
         // Single sideband modulation (double precision)
-        // Upper sideband (shift up): I * cos - Q * sin
-        // Lower sideband (shift down): I * cos + Q * sin
+        // Convention: Q lags I by 90° → I*cos - Q*sin shifts UP
         double output;
         if (shiftHz >= 0.0f)
             output = I * cosOsc - Q * sinOsc;  // Upper sideband
@@ -128,36 +130,184 @@ private:
     float shiftHz = 0.0f;
     double oscPhase = 0.0;
 
-    // Allpass filter coefficients for Hilbert transform (stored as double for precision)
-    // These coefficients are designed to create ~90° phase difference
-    // between the I and Q outputs across 20Hz-20kHz at 44.1kHz sample rate.
-    // Based on Olli Niemitalo's Hilbert transformer design.
+    // ===== 8-STAGE ALLPASS COEFFICIENTS =====
+    // Generated using Weaver/Darlington phase-difference network design
+    // with frequency prewarping for bilinear transform accuracy.
+    // Passband: 20 Hz to 20000 Hz.
+    //
+    // NOTE: Coefficients are SWAPPED from generator output (A→Q, B→I)
+    // so that Q lags I by 90°, matching the SSB formula convention.
+    // Coefficients include negative values — this is correct for the
+    // allpass form H(z) = (a + z^-1) / (1 + a*z^-1) with |a| < 1.
 
-    // Chain I coefficients (phase reference)
-    static constexpr std::array<double, 6> coeffsI = {
-        0.4021921162426,
-        0.8561710882420,
-        0.9722909545651,
-        0.9952884791278,
-        0.9990657381831,
-        0.9998766533010
-    };
+    static constexpr int HILBERT_ORDER = 8;
 
-    // Chain Q coefficients (90° shifted)
-    static constexpr std::array<double, 6> coeffsQ = {
-        0.1684919243525,
-        0.7024051466406,
-        0.9351665954634,
-        0.9862259517082,
-        0.9979710606470,
-        0.9997089053332
-    };
+    // --- 44100 Hz (max phase error: 0.68°, rejection: ~39 dB) ---
+    static constexpr std::array<double, HILBERT_ORDER> coeffsI_44100 = {{
+        -0.9966789239045,
+        -0.9876655104021,
+        -0.9591616413744,
+        -0.8656198275171,
+        -0.5991725301098,
+        -0.0784460758477,
+         0.4852575252917,
+         0.9012582586783
+    }};
+    static constexpr std::array<double, HILBERT_ORDER> coeffsQ_44100 = {{
+        -0.9989943547547,
+        -0.9933083026731,
+        -0.9775825672554,
+        -0.9255827529740,
+        -0.7629203804023,
+        -0.3654644516380,
+         0.2190471481496,
+         0.7069061720752
+    }};
+
+    // --- 48000 Hz (max phase error: 0.30°, rejection: ~46 dB) ---
+    static constexpr std::array<double, HILBERT_ORDER> coeffsI_48000 = {{
+        -0.9972486015686,
+        -0.9899809538902,
+        -0.9683227895730,
+        -0.9010513844926,
+        -0.7107743687347,
+        -0.2963502523252,
+         0.2776863462778,
+         0.8425127789381
+    }};
+    static constexpr std::array<double, HILBERT_ORDER> coeffsQ_48000 = {{
+        -0.9991652240544,
+        -0.9944916665440,
+        -0.9821601585862,
+        -0.9438304725847,
+        -0.8283911536319,
+        -0.5342672052652,
+        -0.0150704629855,
+         0.5600736032347
+    }};
+
+    // --- 88200 Hz (max phase error: 0.07°, rejection: ~58 dB) ---
+    static constexpr std::array<double, HILBERT_ORDER> coeffsI_88200 = {{
+        -0.9987130319856,
+        -0.9955359024489,
+        -0.9869962083543,
+        -0.9627146696895,
+        -0.8953773209802,
+        -0.7238033532775,
+        -0.3457121711835,
+         0.5148760283284
+    }};
+    static constexpr std::array<double, HILBERT_ORDER> coeffsQ_88200 = {{
+        -0.9996060134519,
+        -0.9974723006178,
+        -0.9923493886848,
+        -0.9779531191518,
+        -0.9372566571353,
+        -0.8281316811565,
+        -0.5685849970816,
+        -0.0227410040798
+    }};
+
+    // --- 96000 Hz (max phase error: 0.07°, rejection: ~58 dB) ---
+    static constexpr std::array<double, HILBERT_ORDER> coeffsI_96000 = {{
+        -0.9988241980115,
+        -0.9959301373732,
+        -0.9881821956105,
+        -0.9662171519291,
+        -0.9052879239636,
+        -0.7486770844140,
+        -0.3939080347309,
+         0.4721174503023
+    }};
+    static constexpr std::array<double, HILBERT_ORDER> coeffsQ_96000 = {{
+        -0.9996398894814,
+        -0.9976926502140,
+        -0.9930356311698,
+        -0.9799963695316,
+        -0.9432008187435,
+        -0.8441837511359,
+        -0.6047571112298,
+        -0.0788954355798
+    }};
+
+    // --- 176400 Hz (max phase error: 0.06°, rejection: ~60 dB) ---
+    static constexpr std::array<double, HILBERT_ORDER> coeffsI_176400 = {{
+        -0.9993721967375,
+        -0.9978425579323,
+        -0.9938006601043,
+        -0.9824377485686,
+        -0.9507349481540,
+        -0.8656266628239,
+        -0.6452120016425,
+         0.1583595547646
+    }};
+    static constexpr std::array<double, HILBERT_ORDER> coeffsQ_176400 = {{
+        -0.9998074407682,
+        -0.9987716868814,
+        -0.9963268704857,
+        -0.9895597891956,
+        -0.9705222946350,
+        -0.9182415709415,
+        -0.7813881815732,
+        -0.4064211465907
+    }};
+
+    // --- 192000 Hz (max phase error: 0.06°, rejection: ~60 dB) ---
+    static constexpr std::array<double, HILBERT_ORDER> coeffsI_192000 = {{
+        -0.9994238614054,
+        -0.9980209306977,
+        -0.9943164920362,
+        -0.9839053209639,
+        -0.9548306715211,
+        -0.8764450969633,
+        -0.6708172725981,
+         0.1138815144184
+    }};
+    static constexpr std::array<double, HILBERT_ORDER> coeffsQ_192000 = {{
+        -0.9998232724182,
+        -0.9988729659728,
+        -0.9966315219795,
+        -0.9904308684346,
+        -0.9729839352838,
+        -0.9249655861138,
+        -0.7983187099069,
+        -0.4435097678397
+    }};
+
+    // Active coefficients (set by selectCoefficients)
+    std::array<double, HILBERT_ORDER> coeffsI = {};
+    std::array<double, HILBERT_ORDER> coeffsQ = {};
 
     // Allpass filter states - DOUBLE PRECISION for accurate feedback loops
-    // This prevents quantization error accumulation that causes distortion
     static constexpr int MAX_CHANNELS = 2;
-    std::array<std::array<double, 6>, MAX_CHANNELS> allpassStatesI = {};
-    std::array<std::array<double, 6>, MAX_CHANNELS> allpassStatesQ = {};
+    std::array<std::array<double, HILBERT_ORDER>, MAX_CHANNELS> allpassStatesI = {};
+    std::array<std::array<double, HILBERT_ORDER>, MAX_CHANNELS> allpassStatesQ = {};
+
+    /**
+     * Select coefficient tables based on sample rate.
+     */
+    void selectCoefficients(double sr)
+    {
+        if (sr <= 44200.0) {
+            std::copy(coeffsI_44100.begin(), coeffsI_44100.end(), coeffsI.begin());
+            std::copy(coeffsQ_44100.begin(), coeffsQ_44100.end(), coeffsQ.begin());
+        } else if (sr <= 48100.0) {
+            std::copy(coeffsI_48000.begin(), coeffsI_48000.end(), coeffsI.begin());
+            std::copy(coeffsQ_48000.begin(), coeffsQ_48000.end(), coeffsQ.begin());
+        } else if (sr <= 88300.0) {
+            std::copy(coeffsI_88200.begin(), coeffsI_88200.end(), coeffsI.begin());
+            std::copy(coeffsQ_88200.begin(), coeffsQ_88200.end(), coeffsQ.begin());
+        } else if (sr <= 96100.0) {
+            std::copy(coeffsI_96000.begin(), coeffsI_96000.end(), coeffsI.begin());
+            std::copy(coeffsQ_96000.begin(), coeffsQ_96000.end(), coeffsQ.begin());
+        } else if (sr <= 176500.0) {
+            std::copy(coeffsI_176400.begin(), coeffsI_176400.end(), coeffsI.begin());
+            std::copy(coeffsQ_176400.begin(), coeffsQ_176400.end(), coeffsQ.begin());
+        } else {
+            std::copy(coeffsI_192000.begin(), coeffsI_192000.end(), coeffsI.begin());
+            std::copy(coeffsQ_192000.begin(), coeffsQ_192000.end(), coeffsQ.begin());
+        }
+    }
 
     /**
      * Process through the I-channel allpass chain for a specific channel.

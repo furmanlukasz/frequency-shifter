@@ -156,12 +156,21 @@ public:
         {
             size_t binIdx = static_cast<size_t>(bin);
             int writePos = writePositions[binIdx];
-            int delayFrames = delayFramesPerBin[binIdx];
+            float delayFrames = delayFramesPerBin[binIdx];
 
-            // Read from delay line
-            int readPos = (writePos - delayFrames + maxDelayFrames) % maxDelayFrames;
-            float delayedMag = magnitudeBuffers[binIdx][static_cast<size_t>(readPos)];
-            float delayedPhase = phaseBuffers[binIdx][static_cast<size_t>(readPos)];
+            // Fractional frame read with linear interpolation for smooth modulation
+            float readPosFloat = static_cast<float>(writePos) - delayFrames;
+            if (readPosFloat < 0.0f)
+                readPosFloat += static_cast<float>(maxDelayFrames);
+
+            int readPos0 = static_cast<int>(readPosFloat) % maxDelayFrames;
+            int readPos1 = (readPos0 + 1) % maxDelayFrames;
+            float frac = readPosFloat - std::floor(readPosFloat);
+
+            float delayedMag = magnitudeBuffers[binIdx][static_cast<size_t>(readPos0)] * (1.0f - frac)
+                             + magnitudeBuffers[binIdx][static_cast<size_t>(readPos1)] * frac;
+            float delayedPhase = phaseBuffers[binIdx][static_cast<size_t>(readPos0)] * (1.0f - frac)
+                               + phaseBuffers[binIdx][static_cast<size_t>(readPos1)] * frac;
 
             // Get damping factor for this bin
             float dampFactor = dampingCurve[binIdx];
@@ -214,8 +223,8 @@ private:
     std::vector<std::vector<float>> phaseBuffers;
     std::vector<int> writePositions;
 
-    // Pre-computed per-bin values
-    std::vector<int> delayFramesPerBin;
+    // Pre-computed per-bin values (float for fractional frame interpolation)
+    std::vector<float> delayFramesPerBin;
     std::vector<float> dampingCurve;
 
     /**
@@ -238,8 +247,8 @@ private:
             float slopeFactor = 1.0f + (frequencySlope / 100.0f) * (binNorm - 0.5f) * 2.0f;
             slopeFactor = std::max(0.1f, slopeFactor);  // Prevent negative/zero delay
 
-            int delayFrames = static_cast<int>(baseDelayFrames * slopeFactor);
-            delayFrames = std::clamp(delayFrames, 1, maxDelayFrames - 1);
+            float delayFrames = baseDelayFrames * slopeFactor;
+            delayFrames = std::clamp(delayFrames, 1.0f, static_cast<float>(maxDelayFrames - 2));
 
             delayFramesPerBin[static_cast<size_t>(bin)] = delayFrames;
         }

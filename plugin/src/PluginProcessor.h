@@ -316,6 +316,11 @@ private:
     std::array<std::vector<float>, MAX_CHANNELS> feedbackBuffers;
     std::array<int, MAX_CHANNELS> feedbackWritePos{};
 
+    // Per-sample smoothed delay time (in samples) for glitch-free LFO modulation
+    // One-pole exponential filter mimics analog tape motor inertia
+    std::array<float, MAX_CHANNELS> smoothedDelayTimeSamples{};
+    float delayTimeSmoothCoeff = 0.0f;  // One-pole coefficient (~5ms time constant)
+
     // Simple one-pole lowpass for feedback damping
     std::array<float, MAX_CHANNELS> feedbackFilterState{};
     float feedbackFilterCoeff = 0.5f;  // Calculated from damping parameter
@@ -343,11 +348,17 @@ private:
     static constexpr float DRIFT_LFO_DEPTH = 0.5f;  // ~0.5Hz variation
 
     // Eventide-style feedback filters for Classic mode
-    // DC blocker removes offset accumulation from imperfect sideband cancellation
-    // 4th order Butterworth LPF (48 dB/oct) provides steep anti-aliasing
-    std::array<float, MAX_CHANNELS> classicDcBlockState{};  // DC blocker state per channel
-    std::array<std::array<float, 8>, MAX_CHANNELS> classicFbLpfState{};  // 4th order LPF state (2 cascaded biquads)
+    // HPF (150Hz) prevents low-frequency buildup during delay modulation
+    // 2nd order LPF provides anti-aliasing without ringing artifacts
+    std::array<float, MAX_CHANNELS> classicDcBlockState{};  // Legacy (unused, kept for compat)
+    std::array<std::array<float, 4>, MAX_CHANNELS> classicFbHpfState{};  // 150Hz HPF biquad state per channel
+    std::array<std::array<float, 8>, MAX_CHANNELS> classicFbLpfState{};  // LPF state (only first stage used now)
     std::array<float, 10> classicFbLpfCoeffs{};  // Coefficients for 2 cascaded biquads (5 each)
+
+    // Anti-aliasing LPF on Classic mode output (~16kHz, 2nd order Butterworth)
+    // Removes Nyquist-aliased content from large upward frequency shifts
+    std::array<std::array<float, 4>, MAX_CHANNELS> classicOutputLpfState{};
+    std::array<float, 5> classicOutputLpfCoeffs{};
 
     // Tempo sync division multipliers (relative to quarter note)
     static constexpr int NUM_TEMPO_DIVISIONS = 16;

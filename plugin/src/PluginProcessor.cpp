@@ -675,6 +675,12 @@ void FrequencyShifterProcessor::prepareToPlay(double sampleRate, int samplesPerB
     inputEnvelope.fill(0.0f);
     outputEnvelope.fill(0.0f);
 
+    // Initialize delay time smoother (~5ms one-pole for glitch-free LFO modulation)
+    float smoothTimeMs = 5.0f;
+    delayTimeSmoothCoeff = std::exp(-1.0f / (static_cast<float>(sampleRate) * smoothTimeMs / 1000.0f));
+    float defaultDelaySamples = 200.0f * static_cast<float>(sampleRate) / 1000.0f;
+    smoothedDelayTimeSamples.fill(defaultDelaySamples);
+
     // Initialize with current quality mode
     reinitializeDsp();
 }
@@ -853,6 +859,27 @@ void FrequencyShifterProcessor::reinitializeDsp()
         }
     }
 
+    // Calculate Classic mode output anti-aliasing LPF (~16kHz, 2nd order Butterworth)
+    // Removes Nyquist-aliased content from large upward frequency shifts
+    {
+        const float aaCutoff = 16000.0f;
+        const float Q = 0.707f;  // Butterworth Q
+        const float omega = 2.0f * static_cast<float>(M_PI) * aaCutoff / static_cast<float>(currentSampleRate);
+        const float sinOmega = std::sin(omega);
+        const float cosOmega = std::cos(omega);
+        const float alpha = sinOmega / (2.0f * Q);
+
+        const float a0 = 1.0f + alpha;
+        classicOutputLpfCoeffs[0] = ((1.0f - cosOmega) / 2.0f) / a0;  // b0
+        classicOutputLpfCoeffs[1] = (1.0f - cosOmega) / a0;            // b1
+        classicOutputLpfCoeffs[2] = ((1.0f - cosOmega) / 2.0f) / a0;  // b2
+        classicOutputLpfCoeffs[3] = -(-2.0f * cosOmega) / a0;          // -a1
+        classicOutputLpfCoeffs[4] = -(1.0f - alpha) / a0;              // -a2
+
+        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
+            classicOutputLpfState[static_cast<size_t>(ch)].fill(0.0f);
+    }
+
     // Calculate highpass filter coefficients (150Hz, Q=0.707, Butterworth)
     // This prevents low frequency "thumping" buildup in the feedback loop
     {
@@ -940,11 +967,13 @@ void FrequencyShifterProcessor::reinitializeDsp()
         classicFbLpfCoeffs[8] = -(-2.0f * cosOmega) / a0_2;          // -a1
         classicFbLpfCoeffs[9] = -(1.0f - alpha2) / a0_2;             // -a2
 
-        // Reset Eventide-style feedback filter states
+        // Reset classic mode feedback filter states
         for (int ch = 0; ch < MAX_CHANNELS; ++ch)
         {
             classicDcBlockState[static_cast<size_t>(ch)] = 0.0f;
+            classicFbHpfState[static_cast<size_t>(ch)].fill(0.0f);
             classicFbLpfState[static_cast<size_t>(ch)].fill(0.0f);
+            classicOutputLpfState[static_cast<size_t>(ch)].fill(0.0f);
         }
     }
 
@@ -1334,16 +1363,29 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                     auto& fbBuffer = feedbackBuffers[static_cast<size_t>(channel)];
                     int fbBufSize = static_cast<int>(fbBuffer.size());
 
-                    // Classic mode: NO FFT latency compensation - use raw delay time
-                    int delaySamples = static_cast<int>(modulatedDelayTimeMs * currentSampleRate / 1000.0f);
+                    // Per-sample delay time smoothing (one-pole filter for glitch-free modulation)
+                    float targetDelaySamples = modulatedDelayTimeMs * static_cast<float>(currentSampleRate) / 1000.0f;
+                    smoothedDelayTimeSamples[static_cast<size_t>(channel)] =
+                        targetDelaySamples + delayTimeSmoothCoeff *
+                        (smoothedDelayTimeSamples[static_cast<size_t>(channel)] - targetDelaySamples);
 
-                    // Ensure minimum delay of ~10ms to prevent artifacts
-                    int minDelaySamples = static_cast<int>(10.0f * currentSampleRate / 1000.0f);
-                    delaySamples = std::clamp(delaySamples, minDelaySamples, fbBufSize - 1);
+                    // Classic mode: NO FFT latency compensation - use smoothed delay time
+                    float delaySamplesFloat = smoothedDelayTimeSamples[static_cast<size_t>(channel)];
+                    float minDelaySamplesF = 10.0f * static_cast<float>(currentSampleRate) / 1000.0f;
+                    delaySamplesFloat = std::clamp(delaySamplesFloat, minDelaySamplesF, static_cast<float>(fbBufSize - 2));
 
-                    // Read from own channel feedback buffer
-                    int fbReadPos = (feedbackWritePos[static_cast<size_t>(channel)] - delaySamples + fbBufSize) % fbBufSize;
-                    float feedbackSample = fbBuffer[static_cast<size_t>(fbReadPos)] * currentFeedbackAmount;
+                    // Fractional delay read with linear interpolation for smooth modulation
+                    float readPosFloat = static_cast<float>(feedbackWritePos[static_cast<size_t>(channel)]) - delaySamplesFloat;
+                    if (readPosFloat < 0.0f)
+                        readPosFloat += static_cast<float>(fbBufSize);
+
+                    int readPos0 = static_cast<int>(readPosFloat) % fbBufSize;
+                    int readPos1 = (readPos0 + 1) % fbBufSize;
+                    float frac = readPosFloat - std::floor(readPosFloat);
+
+                    float interpolatedSample = fbBuffer[static_cast<size_t>(readPos0)] * (1.0f - frac)
+                                             + fbBuffer[static_cast<size_t>(readPos1)] * frac;
+                    float feedbackSample = interpolatedSample * currentFeedbackAmount;
 
                     // Soft clip feedback on read for safety
                     if (std::abs(feedbackSample) > 0.95f)
@@ -1357,8 +1399,8 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 // Apply Hilbert transform frequency shift (feedback goes through for cumulative shifts)
                 float shiftedSample = hilbert.process(inputSample, channel);
 
-                // === EVENTIDE-STYLE FEEDBACK FILTERING ===
-                // Write to feedback buffer with precision filtering to clean up sideband leakage
+                // === FEEDBACK FILTERING (matching spectral mode approach) ===
+                // Signal chain: HPF (150Hz) → LPF (2nd order) → Write
                 if (currentDelayEnabled && !switching)
                 {
                     auto& fbBuffer = feedbackBuffers[static_cast<size_t>(channel)];
@@ -1366,62 +1408,81 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
                     float toBuffer = shiftedSample;
 
-                    // 1. DC Blocker (1st order HPF at ~10Hz)
-                    // Removes DC offset that accumulates from imperfect sideband cancellation
-                    float& dcState = classicDcBlockState[static_cast<size_t>(channel)];
-                    float dcBlocked = toBuffer - dcState;
-                    dcState += dcBlocked * 0.0005f;  // ~10Hz at 44.1kHz (1 - 0.9995)
-                    toBuffer = dcBlocked;
+                    // 1. Highpass filter (150Hz) to prevent low-frequency buildup
+                    // Uses same coefficients as spectral mode HPF for consistency
+                    auto& hpfState = classicFbHpfState[static_cast<size_t>(channel)];
+                    {
+                        float x0 = toBuffer;
+                        float x1 = hpfState[0];
+                        float x2 = hpfState[1];
+                        float y1 = hpfState[2];
+                        float y2 = hpfState[3];
 
-                    // 2. Steep Anti-aliasing LPF (4th order Butterworth at 12kHz)
-                    // Suppresses high-frequency artifacts from sideband leakage
+                        float hpfOutput = feedbackHpfCoeffs[0] * x0
+                                        + feedbackHpfCoeffs[1] * x1
+                                        + feedbackHpfCoeffs[2] * x2
+                                        + feedbackHpfCoeffs[3] * y1
+                                        + feedbackHpfCoeffs[4] * y2;
+
+                        hpfState[0] = x0;
+                        hpfState[1] = x1;
+                        hpfState[2] = hpfOutput;
+                        hpfState[3] = y1;
+
+                        toBuffer = hpfOutput;
+                    }
+
+                    // 2. Anti-aliasing LPF (2nd order Butterworth at 12kHz)
+                    // Single biquad stage (Q=0.54) — gentler than previous 4th order,
+                    // avoids resonance peak and ringing during delay modulation
                     auto& lpfState = classicFbLpfState[static_cast<size_t>(channel)];
+                    {
+                        float x0 = toBuffer;
+                        float x1 = lpfState[0];
+                        float x2 = lpfState[1];
+                        float y1 = lpfState[2];
+                        float y2 = lpfState[3];
 
-                    // First biquad section
-                    float x0 = toBuffer;
-                    float x1 = lpfState[0];
-                    float x2 = lpfState[1];
-                    float y1 = lpfState[2];
-                    float y2 = lpfState[3];
+                        float filtered = classicFbLpfCoeffs[0] * x0
+                                       + classicFbLpfCoeffs[1] * x1
+                                       + classicFbLpfCoeffs[2] * x2
+                                       + classicFbLpfCoeffs[3] * y1
+                                       + classicFbLpfCoeffs[4] * y2;
 
-                    float filtered1 = classicFbLpfCoeffs[0] * x0
-                                    + classicFbLpfCoeffs[1] * x1
-                                    + classicFbLpfCoeffs[2] * x2
-                                    + classicFbLpfCoeffs[3] * y1
-                                    + classicFbLpfCoeffs[4] * y2;
+                        lpfState[0] = x0;
+                        lpfState[1] = x1;
+                        lpfState[2] = filtered;
+                        lpfState[3] = y1;
 
-                    lpfState[0] = x0;
-                    lpfState[1] = x1;
-                    lpfState[2] = filtered1;
-                    lpfState[3] = y1;
+                        toBuffer = filtered;
+                    }
 
-                    // Second biquad section (cascaded for 4th order)
-                    x0 = filtered1;
-                    x1 = lpfState[4];
-                    x2 = lpfState[5];
-                    y1 = lpfState[6];
-                    y2 = lpfState[7];
-
-                    float filtered2 = classicFbLpfCoeffs[5] * x0
-                                    + classicFbLpfCoeffs[6] * x1
-                                    + classicFbLpfCoeffs[7] * x2
-                                    + classicFbLpfCoeffs[8] * y1
-                                    + classicFbLpfCoeffs[9] * y2;
-
-                    lpfState[4] = x0;
-                    lpfState[5] = x1;
-                    lpfState[6] = filtered2;
-                    lpfState[7] = y1;
-
-                    toBuffer = filtered2;
-
-                    // 3. Soft limiter to prevent runaway
-                    if (std::abs(toBuffer) > 0.95f)
-                        toBuffer = std::tanh(toBuffer);
-
-                    // Write to feedback buffer
+                    // Write to feedback buffer (no write-side soft clip — read-side clip is sufficient)
                     fbBuffer[static_cast<size_t>(feedbackWritePos[static_cast<size_t>(channel)])] = toBuffer;
                     feedbackWritePos[static_cast<size_t>(channel)] = (feedbackWritePos[static_cast<size_t>(channel)] + 1) % fbBufSize;
+                }
+
+                // Anti-aliasing LPF on output (16kHz, removes Nyquist aliasing from large shifts)
+                {
+                    auto& aaState = classicOutputLpfState[static_cast<size_t>(channel)];
+                    float x0 = shiftedSample;
+                    float x1 = aaState[0];
+                    float x2 = aaState[1];
+                    float y1 = aaState[2];
+                    float y2 = aaState[3];
+
+                    float aaOutput = classicOutputLpfCoeffs[0] * x0
+                                   + classicOutputLpfCoeffs[1] * x1
+                                   + classicOutputLpfCoeffs[2] * x2
+                                   + classicOutputLpfCoeffs[3] * y1
+                                   + classicOutputLpfCoeffs[4] * y2;
+
+                    aaState[0] = x0;
+                    aaState[1] = x1;
+                    aaState[2] = aaOutput;
+                    aaState[3] = y1;
+
+                    shiftedSample = aaOutput;
                 }
 
                 // Output is the shifted signal (feedback creates cascading barber-pole effect)
@@ -1461,27 +1522,34 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                     auto& fbBuffer = feedbackBuffers[static_cast<size_t>(channel)];
                     int fbBufSize = static_cast<int>(fbBuffer.size());
 
-                    // Calculate delay in samples from TIME parameter
-                    // IMPORTANT: Compensate for SMEAR-dependent FFT latency!
+                    // Per-sample delay time smoothing (one-pole filter for glitch-free modulation)
+                    float targetDelaySamples = modulatedDelayTimeMs * static_cast<float>(currentSampleRate) / 1000.0f;
+                    smoothedDelayTimeSamples[static_cast<size_t>(channel)] =
+                        targetDelaySamples + delayTimeSmoothCoeff *
+                        (smoothedDelayTimeSamples[static_cast<size_t>(channel)] - targetDelaySamples);
+
+                    // Compensate for SMEAR-dependent FFT latency
                     // The feedback path goes through FFT processing, which adds latency
                     // that varies with SMEAR setting. We subtract this to keep delay
                     // timing consistent regardless of SMEAR.
-                    //
-                    // FFT latency is approximately fftSize samples (input buffering + output overlap)
-                    // We use the primary processor's FFT size (proc 0) since that's where
-                    // feedback is injected.
-                    int currentFftLatencySamples = currentFftSizes[0];  // SMEAR-dependent latency
+                    int currentFftLatencySamples = currentFftSizes[0];
+                    float delaySamplesFloat = smoothedDelayTimeSamples[static_cast<size_t>(channel)]
+                                            - static_cast<float>(currentFftLatencySamples);
 
-                    int rawDelaySamples = static_cast<int>(modulatedDelayTimeMs * currentSampleRate / 1000.0f);
-                    int delaySamples = rawDelaySamples - currentFftLatencySamples;
+                    float minDelaySamplesF = 10.0f * static_cast<float>(currentSampleRate) / 1000.0f;
+                    delaySamplesFloat = std::clamp(delaySamplesFloat, minDelaySamplesF, static_cast<float>(fbBufSize - 2));
 
-                    // Ensure minimum delay of ~10ms to prevent artifacts
-                    int minDelaySamples = static_cast<int>(10.0f * currentSampleRate / 1000.0f);
-                    delaySamples = std::clamp(delaySamples, minDelaySamples, fbBufSize - 1);
+                    // Fractional delay read with linear interpolation for smooth modulation
+                    float readPosFloat = static_cast<float>(feedbackWritePos[static_cast<size_t>(channel)]) - delaySamplesFloat;
+                    if (readPosFloat < 0.0f)
+                        readPosFloat += static_cast<float>(fbBufSize);
 
-                    // Read from feedback buffer and add to input for cascading pitch shifts
-                    int fbReadPos = (feedbackWritePos[static_cast<size_t>(channel)] - delaySamples + fbBufSize) % fbBufSize;
-                    float delayedSample = fbBuffer[static_cast<size_t>(fbReadPos)];
+                    int readPos0 = static_cast<int>(readPosFloat) % fbBufSize;
+                    int readPos1 = (readPos0 + 1) % fbBufSize;
+                    float frac = readPosFloat - std::floor(readPosFloat);
+
+                    float delayedSample = fbBuffer[static_cast<size_t>(readPos0)] * (1.0f - frac)
+                                        + fbBuffer[static_cast<size_t>(readPos1)] * frac;
                     float feedbackSample = delayedSample * currentFeedbackAmount;
 
                     // Soft clip feedback for safety (tanh-style)
@@ -1502,8 +1570,7 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                         DBG("Requested delay: " + juce::String(modulatedDelayTimeMs) + " ms (base: " + juce::String(currentDelayTimeMs) + " ms)");
                         DBG("FFT latency compensation: " + juce::String(currentFftLatencySamples) + " samples ("
                             + juce::String(currentFftLatencySamples * 1000.0f / currentSampleRate, 1) + " ms)");
-                        DBG("Raw delay samples: " + juce::String(rawDelaySamples));
-                        DBG("Compensated delay samples: " + juce::String(delaySamples));
+                        DBG("Smoothed delay samples: " + juce::String(delaySamplesFloat, 1));
                         DBG("Feedback amount: " + juce::String(currentFeedbackAmount * 100.0f) + "%");
                     }
                 }

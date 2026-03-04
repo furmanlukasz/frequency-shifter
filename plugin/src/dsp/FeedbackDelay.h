@@ -99,15 +99,22 @@ public:
 
         int bufferSize = static_cast<int>(delayBuffer.size());
 
-        // Calculate delay in samples
-        int delaySamples = static_cast<int>(delayTimeMs * sampleRate / 1000.0f);
-        delaySamples = std::clamp(delaySamples, 1, bufferSize - 1);
+        // Calculate fractional delay in samples
+        float delaySamplesFloat = static_cast<float>(delayTimeMs * sampleRate / 1000.0);
+        delaySamplesFloat = std::clamp(delaySamplesFloat, 1.0f, static_cast<float>(bufferSize - 2));
 
-        // Calculate read position (writePos was already advanced, so we subtract from writePos)
-        int readPos = (writePos - delaySamples + bufferSize) % bufferSize;
+        // Fractional read position with linear interpolation for smooth modulation
+        float readPosFloat = static_cast<float>(writePos) - delaySamplesFloat;
+        if (readPosFloat < 0.0f)
+            readPosFloat += static_cast<float>(bufferSize);
 
-        // Read delayed signal
-        float delayedSignal = delayBuffer[static_cast<size_t>(readPos)];
+        int readPos0 = static_cast<int>(readPosFloat) % bufferSize;
+        int readPos1 = (readPos0 + 1) % bufferSize;
+        float frac = readPosFloat - std::floor(readPosFloat);
+
+        // Linear interpolation between adjacent samples
+        float delayedSignal = delayBuffer[static_cast<size_t>(readPos0)] * (1.0f - frac)
+                            + delayBuffer[static_cast<size_t>(readPos1)] * frac;
 
         // Apply mix
         return delayedSignal * mix;
