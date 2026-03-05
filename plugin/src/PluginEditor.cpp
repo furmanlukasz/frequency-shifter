@@ -338,6 +338,13 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     addAndMakeVisible(shiftSlider);
     shiftSlider.addListener(this);
 
+    // Initialize shift slider from persisted parameter value
+    // (No SliderAttachment is used here because the slider has a custom log-scale range
+    // that differs from the parameter's linear range, so we sync manually)
+    float currentShiftHz = *audioProcessor.getValueTreeState()
+        .getRawParameterValue(FrequencyShifterProcessor::PARAM_SHIFT_HZ);
+    shiftSlider.setValue(static_cast<double>(currentShiftHz), juce::dontSendNotification);
+
     // Root note selector
     for (const auto& note : { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" })
     {
