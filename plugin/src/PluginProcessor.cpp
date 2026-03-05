@@ -2,6 +2,10 @@
 #include "PluginEditor.h"
 #include "dsp/Scales.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 FrequencyShifterProcessor::FrequencyShifterProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
