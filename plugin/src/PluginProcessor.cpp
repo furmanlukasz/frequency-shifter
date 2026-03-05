@@ -1122,8 +1122,12 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const bool currentWarmEnabled = warmEnabled.load();
 
     // LFO modulation parameters (smooth depth to prevent clicks on slider jumps)
+    // Adjust smoothing coefficient for block-rate application:
+    // The per-sample coefficient is raised to numSamples to get the equivalent
+    // block-rate coefficient, so convergence speed is independent of block size.
     const float targetLfoDepth = lfoDepth.load();
-    smoothedLfoDepth = targetLfoDepth + lfoDepthSmoothCoeff * (smoothedLfoDepth - targetLfoDepth);
+    const float blockCoeff = std::pow(lfoDepthSmoothCoeff, static_cast<float>(numSamples));
+    smoothedLfoDepth = targetLfoDepth + blockCoeff * (smoothedLfoDepth - targetLfoDepth);
     const float currentLfoDepth = smoothedLfoDepth;
     const int currentLfoDepthMode = lfoDepthMode.load();
     const float currentLfoRate = lfoRate.load();
