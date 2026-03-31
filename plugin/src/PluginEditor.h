@@ -64,6 +64,15 @@ private:
     // Custom look and feel
     HolyShifterLookAndFeel holyLookAndFeel;
 
+    // Preset controls
+    juce::TextButton presetPrevButton;
+    juce::TextButton presetNextButton;
+    juce::ComboBox presetComboBox;
+    juce::TextButton presetSaveButton;
+    juce::TextButton presetSaveAsButton;
+    juce::TextButton presetDeleteButton;
+    void refreshPresetList();
+
     // Processing Mode toggle (Classic vs Spectral)
     juce::ComboBox processingModeCombo;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> processingModeAttachment;

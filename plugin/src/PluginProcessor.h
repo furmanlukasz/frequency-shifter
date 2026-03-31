@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "PresetManager.h"
 #include "dsp/STFT.h"
 #include "dsp/PhaseVocoder.h"
 #include "dsp/FrequencyShifter.h"
@@ -56,6 +57,9 @@ public:
 
     // Parameter tree
     juce::AudioProcessorValueTreeState& getValueTreeState() { return parameters; }
+
+    // Preset management
+    PresetManager& getPresetManager() { return presetManager; }
 
     // Parameter IDs
     static constexpr const char* PARAM_SHIFT_HZ = "shiftHz";
@@ -137,6 +141,9 @@ private:
 
     // Parameter tree state
     juce::AudioProcessorValueTreeState parameters;
+
+    // Preset manager (must be after parameters)
+    PresetManager presetManager;
 
     // DSP components (per channel for stereo)
     // Dual processors for crossfade between FFT sizes
