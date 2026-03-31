@@ -52,6 +52,14 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_PROCESSING_MODE, this);
     parameters.addParameterListener(PARAM_WARM, this);
 
+    // Add listeners for per-note scale selection
+    for (int i = 0; i < 12; ++i)
+        parameters.addParameterListener(juce::String(PARAM_SCALE_NOTE_PREFIX) + juce::String(i), this);
+
+    // Initialize scale notes to all ON (chromatic)
+    for (int i = 0; i < 12; ++i)
+        scaleNotes[i].store(true);
+
     // Initialize quantizer with default scale (C Major)
     quantizer = std::make_unique<fshift::MusicalQuantizer>(60, fshift::ScaleType::Major);
 }
@@ -95,6 +103,9 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_SENSITIVITY, this);
     parameters.removeParameterListener(PARAM_PROCESSING_MODE, this);
     parameters.removeParameterListener(PARAM_WARM, this);
+
+    for (int i = 0; i < 12; ++i)
+        parameters.removeParameterListener(juce::String(PARAM_SCALE_NOTE_PREFIX) + juce::String(i), this);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::createParameterLayout()
@@ -149,6 +160,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         "Scale",
         scaleNames,
         0));  // Default to Major
+
+    // Per-note scale selection (12 pitch classes)
+    // Default: all notes ON (chromatic = no filtering)
+    {
+        juce::StringArray pitchNames{ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        for (int i = 0; i < 12; ++i)
+        {
+            auto paramId = juce::String(PARAM_SCALE_NOTE_PREFIX) + juce::String(i);
+            params.push_back(std::make_unique<juce::AudioParameterBool>(
+                juce::ParameterID{ paramId, 1 },
+                "Scale " + pitchNames[i],
+                true));  // Default all ON
+        }
+    }
 
     // Dry/Wet mix (0-100%)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -497,21 +522,30 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     }
     else if (parameterID == PARAM_ROOT_NOTE)
     {
-        // Index is now 0-11 (pitch class), use middle octave (C4=60) as reference
-        int midiNote = static_cast<int>(newValue) + 60;  // C=60, C#=61, ..., B=71
+        // Deprecated — kept for backward compat state loading
+        int midiNote = static_cast<int>(newValue) + 60;
         rootNote.store(midiNote);
-        if (quantizer)
-        {
-            quantizer->setRootNote(midiNote);
-        }
     }
     else if (parameterID == PARAM_SCALE_TYPE)
     {
+        // Deprecated — kept for backward compat state loading
         int scale = static_cast<int>(newValue);
         scaleType.store(scale);
-        if (quantizer)
+    }
+    else if (parameterID.startsWith(PARAM_SCALE_NOTE_PREFIX))
+    {
+        // Extract note index from "scaleNote0" .. "scaleNote11"
+        int noteIdx = parameterID.substring(juce::String(PARAM_SCALE_NOTE_PREFIX).length()).getIntValue();
+        if (noteIdx >= 0 && noteIdx < 12)
         {
-            quantizer->setScaleType(static_cast<fshift::ScaleType>(scale));
+            scaleNotes[noteIdx].store(newValue > 0.5f);
+            if (quantizer)
+            {
+                std::array<bool, 12> notes;
+                for (int i = 0; i < 12; ++i)
+                    notes[i] = scaleNotes[i].load();
+                quantizer->setActiveNotes(notes);
+            }
         }
     }
     else if (parameterID == PARAM_DRY_WET)

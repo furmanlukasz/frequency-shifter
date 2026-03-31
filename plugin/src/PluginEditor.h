@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "PianoKeyboardComponent.h"
 
 /**
  * FrequencyShifterEditor - GUI for the Frequency Shifter plugin.
@@ -104,14 +105,8 @@ private:
     juce::Label sensitivityLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sensitivityAttachment;
 
-    // Root note selector
-    juce::ComboBox rootNoteCombo;
-    juce::Label rootNoteLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rootNoteAttachment;
-
-    // Scale type selector
-    juce::ComboBox scaleTypeCombo;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> scaleTypeAttachment;
+    // Piano keyboard for scale note selection
+    std::unique_ptr<PianoKeyboardComponent> pianoKeyboard;
 
     // Dry/wet mix
     juce::Slider dryWetSlider;

@@ -64,8 +64,11 @@ public:
     // Parameter IDs
     static constexpr const char* PARAM_SHIFT_HZ = "shiftHz";
     static constexpr const char* PARAM_QUANTIZE_STRENGTH = "quantizeStrength";
-    static constexpr const char* PARAM_ROOT_NOTE = "rootNote";
-    static constexpr const char* PARAM_SCALE_TYPE = "scaleType";
+    static constexpr const char* PARAM_ROOT_NOTE = "rootNote";      // Deprecated (backward compat)
+    static constexpr const char* PARAM_SCALE_TYPE = "scaleType";    // Deprecated (backward compat)
+
+    // Per-note scale selection (replaces rootNote + scaleType)
+    static constexpr const char* PARAM_SCALE_NOTE_PREFIX = "scaleNote";  // scaleNote0..scaleNote11
     static constexpr const char* PARAM_DRY_WET = "dryWet";
     static constexpr const char* PARAM_PHASE_VOCODER = "phaseVocoder";
     static constexpr const char* PARAM_SMEAR = "smear";  // 5-123ms continuous control
@@ -166,8 +169,9 @@ private:
     std::atomic<float> quantizeStrength{ 0.0f };
     std::atomic<float> dryWetMix{ 1.0f };
     std::atomic<bool> usePhaseVocoder{ true };
-    std::atomic<int> rootNote{ 60 };  // C4
-    std::atomic<int> scaleType{ 0 };  // Major
+    std::atomic<int> rootNote{ 60 };  // C4 (deprecated, backward compat)
+    std::atomic<int> scaleType{ 0 };  // Major (deprecated, backward compat)
+    std::array<std::atomic<bool>, 12> scaleNotes{};  // Per-note selection (C=0, B=11)
     std::atomic<float> smearMs{ 93.0f };  // Default to max quality (~93ms at 44.1kHz)
 
     // LFO modulation state

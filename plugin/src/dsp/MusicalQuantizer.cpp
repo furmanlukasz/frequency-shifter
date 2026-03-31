@@ -52,6 +52,23 @@ void MusicalQuantizer::setScaleType(ScaleType newScaleType)
     scaleDegrees = fshift::getScaleDegrees(scaleType);
 }
 
+void MusicalQuantizer::setActiveNotes(const std::array<bool, 12>& notes)
+{
+    scaleDegrees.clear();
+    for (int i = 0; i < 12; ++i)
+    {
+        if (notes[i])
+            scaleDegrees.push_back(i);
+    }
+    // If no notes selected, treat as chromatic (pass-through)
+    if (scaleDegrees.empty())
+    {
+        for (int i = 0; i < 12; ++i)
+            scaleDegrees.push_back(i);
+    }
+    rootMidi = 60;  // C4
+}
+
 float MusicalQuantizer::quantizeFrequency(float frequency, float strength) const
 {
     if (frequency <= 0.0f)

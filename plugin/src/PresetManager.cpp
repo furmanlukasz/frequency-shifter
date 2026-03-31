@@ -198,7 +198,7 @@ void PresetManager::initFactoryPresets()
 
     // processingMode: 0=Classic, 1=Spectral
     // lfoShape: 0=Sine, 1=Tri, 2=Saw, 3=InvSaw, 4=Random
-    // scaleType: 0=Major, 1=Minor, 2=Dorian, 3=Mixolydian, etc.
+    // scaleNote0..11: per-note toggles (C=0, C#=1, ..., B=11)
 
     factoryPresets.push_back(makePreset("Init", {
         {"shiftHz", 0.0f},
@@ -323,8 +323,19 @@ void PresetManager::initFactoryPresets()
         {"phaseVocoder", 1.0f},
         {"smear", 23.0f},
         {"quantizeStrength", 80.0f},
-        {"rootNote", 0.0f},  // C
-        {"scaleType", 1.0f},  // Minor
+        // C Minor scale notes: C, D, Eb, F, G, Ab, Bb
+        {"scaleNote0", 1.0f},   // C
+        {"scaleNote1", 0.0f},   // C#
+        {"scaleNote2", 1.0f},   // D
+        {"scaleNote3", 1.0f},   // Eb
+        {"scaleNote4", 0.0f},   // E
+        {"scaleNote5", 1.0f},   // F
+        {"scaleNote6", 0.0f},   // F#
+        {"scaleNote7", 1.0f},   // G
+        {"scaleNote8", 1.0f},   // Ab
+        {"scaleNote9", 0.0f},   // A
+        {"scaleNote10", 1.0f},  // Bb
+        {"scaleNote11", 0.0f},  // B
         {"lfoDepth", 0.0f},
         {"delayEnabled", 0.0f},
         {"maskEnabled", 0.0f},

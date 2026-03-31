@@ -36,6 +36,8 @@ set(PLUGIN_SOURCES
     src/PluginEditor.h
     src/PresetManager.cpp
     src/PresetManager.h
+    src/PianoKeyboardComponent.cpp
+    src/PianoKeyboardComponent.h
     # DSP modules
     src/dsp/STFT.cpp
     src/dsp/STFT.h

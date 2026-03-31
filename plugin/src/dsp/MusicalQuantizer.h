@@ -69,6 +69,15 @@ public:
     void setScaleType(ScaleType scaleType);
 
     /**
+     * Set active notes directly from 12 pitch-class booleans.
+     * Replaces root note + scale type with custom note selection.
+     * Root is implicitly C (MIDI 60).
+     *
+     * @param notes Array of 12 booleans (C, C#, D, ..., B)
+     */
+    void setActiveNotes(const std::array<bool, 12>& notes);
+
+    /**
      * Quantize frequencies to nearest scale notes.
      *
      * @param frequencies Array of frequencies in Hz

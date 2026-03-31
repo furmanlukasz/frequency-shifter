@@ -1,5 +1,4 @@
 #include "PluginEditor.h"
-#include "dsp/Scales.h"
 #include <cmath>
 
 //==============================================================================
@@ -460,26 +459,11 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
         .getRawParameterValue(FrequencyShifterProcessor::PARAM_SHIFT_HZ);
     shiftSlider.setValue(static_cast<double>(currentShiftHz), juce::dontSendNotification);
 
-    // Root note selector
-    for (const auto& note : { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" })
-    {
-        rootNoteCombo.addItem(note, rootNoteCombo.getNumItems() + 1);
-    }
-    addAndMakeVisible(rootNoteCombo);
-    rootNoteAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_ROOT_NOTE, rootNoteCombo);
-
-    setupLabel(rootNoteLabel, "Root Note");
-    addAndMakeVisible(rootNoteLabel);
-
-    // Scale type selector
-    for (const auto& name : fshift::getScaleNames())
-    {
-        scaleTypeCombo.addItem(name, scaleTypeCombo.getNumItems() + 1);
-    }
-    addAndMakeVisible(scaleTypeCombo);
-    scaleTypeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_SCALE_TYPE, scaleTypeCombo);
+    // Piano keyboard for scale note selection
+    pianoKeyboard = std::make_unique<PianoKeyboardComponent>(
+        audioProcessor.getValueTreeState(),
+        FrequencyShifterProcessor::PARAM_SCALE_NOTE_PREFIX);
+    addAndMakeVisible(*pianoKeyboard);
 
     // Quantize slider
     setupHorizontalSlider(quantizeSlider);
@@ -999,10 +983,8 @@ void FrequencyShifterEditor::resized()
     int panelY = 118 + presetStripOffset;
     int panelRowGap = 30;
 
-    rootNoteLabel.setBounds(panelX, panelY, 60, 22);
-    rootNoteCombo.setBounds(panelX + 65, panelY, 58, 24);
-    scaleTypeCombo.setBounds(panelX + 130, panelY, 150, 24);
-    panelY += panelRowGap;
+    pianoKeyboard->setBounds(panelX, panelY, 320, 46);
+    panelY += 52;
 
     quantizeLabel.setBounds(panelX, panelY, 60, 22);
     quantizeSlider.setBounds(panelX + 65, panelY, 280, 22);
@@ -1170,12 +1152,11 @@ void FrequencyShifterEditor::updateControlsForMode()
     quantizeSlider.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
     quantizeLabel.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
 
-    rootNoteCombo.setEnabled(!isClassic);
-    rootNoteCombo.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
-    rootNoteLabel.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
-
-    scaleTypeCombo.setEnabled(!isClassic);
-    scaleTypeCombo.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
+    if (pianoKeyboard)
+    {
+        pianoKeyboard->setEnabled(!isClassic);
+        pianoKeyboard->setAlpha(isClassic ? disabledAlpha : enabledAlpha);
+    }
 
     // PRESERVE, TRANSIENTS, SENSITIVITY - Spectral only
     preserveSlider.setEnabled(!isClassic);
