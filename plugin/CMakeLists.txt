@@ -34,6 +34,8 @@ set(PLUGIN_SOURCES
     src/PluginProcessor.h
     src/PluginEditor.cpp
     src/PluginEditor.h
+    src/PresetManager.cpp
+    src/PresetManager.h
     # DSP modules
     src/dsp/STFT.cpp
     src/dsp/STFT.h
@@ -58,7 +60,7 @@ juce_add_plugin(FrequencyShifter
     FORMATS AU VST3 AUv3 Standalone
 
     # Plugin name
-    PRODUCT_NAME "Holy Shifter v107"
+    PRODUCT_NAME "Holy Shifter v109"
 
     # Plugin characteristics
     IS_SYNTH FALSE

@@ -10,7 +10,8 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      parameters(*this, nullptr, juce::Identifier("FrequencyShifter"), createParameterLayout())
+      parameters(*this, nullptr, juce::Identifier("FrequencyShifter"), createParameterLayout()),
+      presetManager(parameters)
 {
     // Add parameter listeners
     parameters.addParameterListener(PARAM_SHIFT_HZ, this);
