@@ -1,5 +1,5 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#include "VisageHostEditor.h"
 #include "dsp/Scales.h"
 
 #ifndef M_PI
@@ -2094,7 +2094,7 @@ double FrequencyShifterProcessor::getTailLengthSeconds() const
 
 juce::AudioProcessorEditor* FrequencyShifterProcessor::createEditor()
 {
-    return new FrequencyShifterEditor(*this);
+    return new VisageHostEditor(*this);
 }
 
 void FrequencyShifterProcessor::getStateInformation(juce::MemoryBlock& destData)

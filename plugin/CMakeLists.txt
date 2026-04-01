@@ -14,9 +14,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build universal binary")
+    enable_language(OBJC)
+    enable_language(OBJCXX)
 endif()
 
-# Fetch JUCE
+# Fetch dependencies
 include(FetchContent)
 
 FetchContent_Declare(
@@ -26,18 +28,38 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(JUCE)
+FetchContent_Declare(
+    visage
+    GIT_REPOSITORY https://github.com/VitalAudio/visage.git
+    GIT_TAG main
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(JUCE visage)
 
 # Plugin sources
 set(PLUGIN_SOURCES
     src/PluginProcessor.cpp
     src/PluginProcessor.h
-    src/PluginEditor.cpp
-    src/PluginEditor.h
+    src/VisageHostEditor.cpp
+    src/VisageHostEditor.h
     src/PresetManager.cpp
     src/PresetManager.h
-    src/PianoKeyboardComponent.cpp
-    src/PianoKeyboardComponent.h
+    # Visage UI
+    src/ui/HolyTheme.h
+    src/ui/VisageParamAttachment.h
+    src/ui/HolyShifterUI.cpp
+    src/ui/HolyShifterUI.h
+    src/ui/controls/HolyRotaryKnob.cpp
+    src/ui/controls/HolyRotaryKnob.h
+    src/ui/controls/HolySlider.cpp
+    src/ui/controls/HolySlider.h
+    src/ui/controls/HolyToggle.cpp
+    src/ui/controls/HolyToggle.h
+    src/ui/controls/HolyComboBox.cpp
+    src/ui/controls/HolyComboBox.h
+    src/ui/controls/HolyPianoKeyboard.cpp
+    src/ui/controls/HolyPianoKeyboard.h
     # DSP modules
     src/dsp/STFT.cpp
     src/dsp/STFT.h
@@ -62,7 +84,7 @@ juce_add_plugin(FrequencyShifter
     FORMATS AU VST3 AUv3 Standalone
 
     # Plugin name
-    PRODUCT_NAME "Holy Shifter v109"
+    PRODUCT_NAME "Holy Shifter v110"
 
     # Plugin characteristics
     IS_SYNTH FALSE
@@ -94,11 +116,12 @@ target_compile_definitions(FrequencyShifter
         JUCE_DISPLAY_SPLASH_SCREEN=0
 )
 
-# Link JUCE modules
+# Link JUCE modules and Visage
 target_link_libraries(FrequencyShifter
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        visage
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

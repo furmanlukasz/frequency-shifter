@@ -66,44 +66,12 @@ jobs:
         path: plugin/artifacts/AU/
         if-no-files-found: warn
 
-  build-windows:
-    runs-on: windows-latest
+  # Windows build disabled — Visage GPU dependencies need testing on Windows
+  # Re-enable when Visage D3D11 backend is verified
 
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup CMake
-      uses: lukka/get-cmake@latest
-
-    - name: Configure CMake
-      working-directory: plugin
-      run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      working-directory: plugin
-      run: cmake --build build --config Release --parallel
-
-    - name: Package VST3
-      working-directory: plugin
-      shell: powershell
-      run: |
-        New-Item -ItemType Directory -Force -Path artifacts/VST3
-        Copy-Item -Recurse "build/FrequencyShifter_artefacts/Release/VST3/*" "artifacts/VST3/" -ErrorAction SilentlyContinue
-
-    - name: Upload VST3
-      uses: actions/upload-artifact@v4
-      with:
-        name: FrequencyShifter-Windows-VST3
-        path: plugin/artifacts/VST3/
-        if-no-files-found: warn
-
-  # Collect all artifacts into a single release-ready package
+  # Collect macOS artifacts into a release package
   package:
-    needs: [build-macos, build-windows]
+    needs: [build-macos]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -120,21 +88,14 @@ jobs:
         name: FrequencyShifter-macOS-AU
         path: release/macOS-AU
 
-    - name: Download Windows VST3
-      uses: actions/download-artifact@v4
-      with:
-        name: FrequencyShifter-Windows-VST3
-        path: release/Windows-VST3
-
     - name: Create release archives
       run: |
         cd release
         zip -r FrequencyShifter-macOS-VST3.zip macOS-VST3/
         zip -r FrequencyShifter-macOS-AU.zip macOS-AU/
-        zip -r FrequencyShifter-Windows-VST3.zip Windows-VST3/
 
     - name: Upload release package
       uses: actions/upload-artifact@v4
       with:
-        name: FrequencyShifter-All-Platforms
+        name: FrequencyShifter-macOS
         path: release/*.zip
