@@ -37,6 +37,7 @@ public:
 private:
     float normValueToAngle(float norm) const;
     std::string formatValue(float realValue) const;
+    void updateFromMousePosition(float mx, float my);
 
     std::unique_ptr<VisageParamAttachment> attachment_;
     bool bipolar_ = true;

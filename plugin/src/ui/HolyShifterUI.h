@@ -45,6 +45,9 @@ public:
     void draw(visage::Canvas& canvas) override;
     void pollState();  // Called by timer to sync preset name and redraw
 
+    static constexpr int kBaseW = 700;
+    static constexpr int kBaseH = 928;
+
 private:
     void drawStrip(visage::Canvas& canvas, int y, int h,
                    const std::string& label, bool dimmed = false);

@@ -455,9 +455,11 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     stripY = 438;
     canvas.text("Time", labelFont, visage::Font::kRight, margin + 85, stripY + 24, 40, 22);
     canvas.text("Feedback", labelFont, visage::Font::kRight, margin, stripY + 54, 58, 22);
-    canvas.text("Damping", labelFont, visage::Font::kRight, margin + 62 + (w - margin * 2 - 130) / 2 + 8, stripY + 54, 58, 22);
+    int dampLabelX = margin + 62 + (w - margin * 2 - 130) / 2 + 8;
+    canvas.text("Damping", labelFont, visage::Font::kLeft, dampLabelX, stripY + 54, 58, 22);
     canvas.text("Slope", labelFont, visage::Font::kRight, margin, stripY + 84, 45, 22);
-    canvas.text("Diffuse", labelFont, visage::Font::kRight, margin + 50 + (w - margin * 2 - 118) / 2 + 8, stripY + 84, 52, 22);
+    int diffLabelX = margin + 50 + (w - margin * 2 - 118) / 2 + 8;
+    canvas.text("Diffuse", labelFont, visage::Font::kLeft, diffLabelX, stripY + 84, 52, 22);
 
     // Delay Modulation labels
     stripY = 586;

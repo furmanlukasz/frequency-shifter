@@ -119,28 +119,17 @@ void HolyRotaryKnob::draw(visage::Canvas& canvas)
 void HolyRotaryKnob::mouseDown(const visage::MouseEvent& e)
 {
     dragging_ = true;
-    float paramNorm = attachment_ ? attachment_->getNormalisedValue() : 0.5f;
-    dragKnobNorm_ = fromParamMapper_ ? fromParamMapper_(paramNorm) : paramNorm;
-    dragCurrentNorm_ = paramNorm;
-    lastDragX_ = e.position.x;
     if (attachment_)
         attachment_->beginGesture();
-    redraw();
+    // Immediately set value from mouse angle
+    updateFromMousePosition(e.position.x, e.position.y);
 }
 
 void HolyRotaryKnob::mouseDrag(const visage::MouseEvent& e)
 {
     if (!dragging_ || !attachment_)
         return;
-
-    // Horizontal drag: right = increase (CW), left = decrease (CCW)
-    float dx = e.position.x - lastDragX_;
-    lastDragX_ = e.position.x;
-    float sensitivity = e.isShiftDown() ? kSensitivity * 4.0f : kSensitivity;
-    dragKnobNorm_ = std::clamp(dragKnobNorm_ + dx / sensitivity, 0.0f, 1.0f);
-    dragCurrentNorm_ = toParamMapper_ ? toParamMapper_(dragKnobNorm_) : dragKnobNorm_;
-    attachment_->setNormalisedValue(dragCurrentNorm_);
-    redraw();
+    updateFromMousePosition(e.position.x, e.position.y);
 }
 
 void HolyRotaryKnob::mouseUp(const visage::MouseEvent&)
@@ -148,5 +137,37 @@ void HolyRotaryKnob::mouseUp(const visage::MouseEvent&)
     if (dragging_ && attachment_)
         attachment_->endGesture();
     dragging_ = false;
+    redraw();
+}
+
+void HolyRotaryKnob::updateFromMousePosition(float mx, float my)
+{
+    float centreX = static_cast<float>(width()) * 0.5f;
+    float centreY = static_cast<float>(height()) * 0.5f;
+    float dx = mx - centreX;
+    float dy = my - centreY;
+
+    // Clamp mouse to minimum radius to prevent hypersensitivity near center
+    float dist = std::sqrt(dx * dx + dy * dy);
+    float radius = std::min(static_cast<float>(width()), static_cast<float>(height())) * 0.36f;
+    float minDist = radius * 0.5f;
+    if (dist < minDist && dist > 0.01f)
+    {
+        float scale = minDist / dist;
+        dx *= scale;
+        dy *= scale;
+    }
+
+    // atan2(dx, -dy) gives angle from top (12 o'clock), CW positive
+    float mouseAngle = std::atan2(dx, -dy);
+
+    // Clamp to knob range
+    mouseAngle = std::clamp(mouseAngle, kStartAngle, kEndAngle);
+
+    // Convert angle to knob norm (0-1)
+    float knobNorm = (mouseAngle - kStartAngle) / (kEndAngle - kStartAngle);
+    dragKnobNorm_ = knobNorm;
+    dragCurrentNorm_ = toParamMapper_ ? toParamMapper_(knobNorm) : knobNorm;
+    attachment_->setNormalisedValue(dragCurrentNorm_);
     redraw();
 }

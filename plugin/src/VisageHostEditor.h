@@ -18,8 +18,11 @@ public:
     ~VisageHostEditor() override;
 
     void paint(juce::Graphics&) override {}
-    void resized() override {}
+    void resized() override;
     void parentHierarchyChanged() override;
+
+    static constexpr int kBaseWidth = 700;
+    static constexpr int kBaseHeight = 928;
 
 private:
     void timerCallback() override;

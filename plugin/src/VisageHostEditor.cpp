@@ -4,7 +4,7 @@
 VisageHostEditor::VisageHostEditor(FrequencyShifterProcessor& p)
     : juce::AudioProcessorEditor(p), processor_(p)
 {
-    setSize(700, 928);
+    setSize(kBaseWidth, kBaseHeight);
     setResizable(false, false);
     setOpaque(true);
 }
@@ -34,7 +34,7 @@ void VisageHostEditor::parentHierarchyChanged()
         return;
 
     visageWindow_ = std::make_unique<visage::ApplicationWindow>();
-    visageWindow_->setWindowDimensions(visage::Dimension(700), visage::Dimension(928));
+    visageWindow_->setWindowDimensions(visage::Dimension(kBaseWidth), visage::Dimension(kBaseHeight));
 
     ui_ = std::make_unique<HolyShifterUI>(processor_);
     visageWindow_->addChild(ui_.get());
@@ -43,8 +43,11 @@ void VisageHostEditor::parentHierarchyChanged()
     visageWindow_->show(nativeHandle);
     windowShown_ = true;
 
-    // Poll at 30Hz for DAW automation and preset changes
     startTimerHz(30);
+}
+
+void VisageHostEditor::resized()
+{
 }
 
 void VisageHostEditor::timerCallback()
