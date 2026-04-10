@@ -25,6 +25,8 @@ public:
     std::string getSelectedText() const;
     void selectIndex(int idx);
     const std::vector<std::string>& getItems() const { return items_; }
+    void setDimmed(bool d) { if (dimmed_ != d) { dimmed_ = d; redraw(); } }
+    bool isDimmed() const { return dimmed_; }
 
     // Provide a shared dropdown frame (owned by root UI)
     static void setSharedDropdown(visage::Frame* dropdown);
@@ -33,6 +35,7 @@ public:
 private:
     std::unique_ptr<VisageParamAttachment> attachment_;
     std::vector<std::string> items_;
+    bool dimmed_ = false;
     static visage::Frame* sharedDropdown_;
 
     VISAGE_LEAK_CHECKER(HolyComboBox)

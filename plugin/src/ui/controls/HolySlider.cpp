@@ -33,6 +33,7 @@ void HolySlider::draw(visage::Canvas& canvas)
     float w = static_cast<float>(width());
     float h = static_cast<float>(height());
     float sliderW = getSliderWidth();
+    bool d = dimmed_;
 
     float norm = dragging_ ? dragCurrentNorm_
                            : (attachment_ ? attachment_->getNormalisedValue() : 0.0f);
@@ -41,14 +42,14 @@ void HolySlider::draw(visage::Canvas& canvas)
     float trackY = h * 0.5f - trackH * 0.5f;
 
     // Background track
-    canvas.setColor(holy::colors::track);
+    canvas.setColor(holy::dimColor(holy::colors::track, d));
     canvas.roundedRectangle(0, trackY, sliderW, trackH, trackH * 0.5f);
 
     // Filled track
     float fillW = norm * sliderW;
     if (fillW > 0.5f)
     {
-        canvas.setColor(holy::colors::accent);
+        canvas.setColor(holy::dimColor(holy::colors::accent, d));
         canvas.roundedRectangle(0, trackY, fillW, trackH, trackH * 0.5f);
     }
 
@@ -56,13 +57,13 @@ void HolySlider::draw(visage::Canvas& canvas)
     float thumbSize = 7.0f;
     float thumbX = fillW - thumbSize * 0.5f;
     float thumbY = h * 0.5f - thumbSize * 0.5f;
-    canvas.setColor(holy::colors::accent);
+    canvas.setColor(holy::dimColor(holy::colors::accent, d));
     canvas.circle(thumbX, thumbY, thumbSize);
 
     // Value text
     std::string valText = formatValue();
     auto font = holy::makeFont(11.0f);
-    canvas.setColor(holy::colors::text);
+    canvas.setColor(holy::dimColor(holy::colors::text, d));
     canvas.text(valText.c_str(), font, visage::Font::kRight,
                 static_cast<int>(sliderW + 4), 0,
                 static_cast<int>(kTextWidth - 4), static_cast<int>(h));
@@ -70,7 +71,7 @@ void HolySlider::draw(visage::Canvas& canvas)
 
 void HolySlider::mouseDown(const visage::MouseEvent& e)
 {
-    if (!attachment_)
+    if (!attachment_ || dimmed_)
         return;
 
     dragging_ = true;

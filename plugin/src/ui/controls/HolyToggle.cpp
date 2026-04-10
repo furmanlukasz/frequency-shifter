@@ -18,6 +18,7 @@ bool HolyToggle::isOn() const
 void HolyToggle::draw(visage::Canvas& canvas)
 {
     bool on = isOn();
+    bool d = dimmed_;
     float h = static_cast<float>(height());
 
     // Pill dimensions
@@ -28,20 +29,20 @@ void HolyToggle::draw(visage::Canvas& canvas)
     float pillR = pillH * 0.5f;
 
     // Pill background
-    canvas.setColor(on ? holy::colors::accentDim : holy::colors::track);
+    canvas.setColor(holy::dimColor(on ? holy::colors::accentDim : holy::colors::track, d));
     canvas.roundedRectangle(0, pillY, pillW, pillH, pillR);
 
     // Dot
     float dotY = pillY + (pillH - dotSize) * 0.5f;
     float dotX = on ? (pillW - dotSize - 2.0f) : 2.0f;
-    canvas.setColor(on ? holy::colors::accent : holy::colors::textMuted);
+    canvas.setColor(holy::dimColor(on ? holy::colors::accent : holy::colors::textMuted, d));
     canvas.circle(dotX, dotY, dotSize);
 
     // Label
     if (!label_.empty())
     {
         auto font = holy::makeFont(11.0f);
-        canvas.setColor(on ? holy::colors::text : holy::colors::textSec);
+        canvas.setColor(holy::dimColor(on ? holy::colors::text : holy::colors::textSec, d));
         canvas.text(label_.c_str(), font, visage::Font::kLeft,
                     static_cast<int>(pillW + 6), 0,
                     width() - static_cast<int>(pillW + 6), static_cast<int>(h));
@@ -50,6 +51,8 @@ void HolyToggle::draw(visage::Canvas& canvas)
 
 void HolyToggle::mouseDown(const visage::MouseEvent&)
 {
+    if (dimmed_)
+        return;
     if (attachment_)
     {
         bool newState = !isOn();

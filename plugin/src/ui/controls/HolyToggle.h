@@ -18,6 +18,8 @@ public:
 
     void setLabel(const std::string& label) { label_ = label; redraw(); }
     bool isOn() const;
+    void setDimmed(bool d) { if (dimmed_ != d) { dimmed_ = d; redraw(); } }
+    bool isDimmed() const { return dimmed_; }
 
     // Callback for non-param toggles (e.g. stereo decorrelate)
     std::function<void(bool)> onToggle;
@@ -26,6 +28,7 @@ private:
     std::unique_ptr<VisageParamAttachment> attachment_;
     std::string label_;
     bool manualState_ = false;
+    bool dimmed_ = false;
 
     VISAGE_LEAK_CHECKER(HolyToggle)
 };

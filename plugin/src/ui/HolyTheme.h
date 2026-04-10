@@ -45,6 +45,15 @@ namespace holy {
 #endif
     }
 
+    // Reduce alpha of an ARGB color for dimmed/disabled controls
+    inline constexpr unsigned int dimColor(unsigned int color, bool dimmed)
+    {
+        if (!dimmed) return color;
+        unsigned int alpha = (color >> 24) & 0xFF;
+        alpha = static_cast<unsigned int>(alpha * 0.25f);
+        return (alpha << 24) | (color & 0x00FFFFFFu);
+    }
+
     // Raw color values for use in draw() calls that need direct ARGB
     namespace colors {
         static constexpr unsigned int background  = 0xFF0A0A0C;

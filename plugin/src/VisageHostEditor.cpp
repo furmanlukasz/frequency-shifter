@@ -7,6 +7,7 @@ VisageHostEditor::VisageHostEditor(FrequencyShifterProcessor& p)
     setSize(kBaseWidth, kBaseHeight);
     setResizable(false, false);
     setOpaque(true);
+    startTimerHz(30);
 }
 
 VisageHostEditor::~VisageHostEditor()
@@ -20,7 +21,7 @@ VisageHostEditor::~VisageHostEditor()
     ui_ = nullptr;
 }
 
-void VisageHostEditor::parentHierarchyChanged()
+void VisageHostEditor::tryCreateVisageWindow()
 {
     if (windowShown_)
         return;
@@ -38,12 +39,17 @@ void VisageHostEditor::parentHierarchyChanged()
 
     ui_ = std::make_unique<HolyShifterUI>(processor_);
     visageWindow_->addChild(ui_.get());
+    ui_->setBounds(0, 0, kBaseWidth, kBaseHeight);
     ui_->layout().setMargin(0);
 
     visageWindow_->show(nativeHandle);
     windowShown_ = true;
+    repaint();
+}
 
-    startTimerHz(30);
+void VisageHostEditor::parentHierarchyChanged()
+{
+    tryCreateVisageWindow();
 }
 
 void VisageHostEditor::resized()
@@ -52,6 +58,11 @@ void VisageHostEditor::resized()
 
 void VisageHostEditor::timerCallback()
 {
+    if (!windowShown_)
+    {
+        tryCreateVisageWindow();
+        return;
+    }
     if (ui_)
         ui_->pollState();
 }

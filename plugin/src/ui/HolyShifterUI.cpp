@@ -247,6 +247,8 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     addChild(&dropdownOverlay_);
     addChild(&presetDropdown_);
     HolyComboBox::setSharedDropdown(&dropdownOverlay_);
+
+    updateControlsForMode();
 }
 
 // === HolyPresetDropdown ===
@@ -347,7 +349,34 @@ void HolyPresetDropdown::mouseMove(const visage::MouseEvent& e)
 void HolyShifterUI::pollState()
 {
     currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
+    updateControlsForMode();
     redrawAll();
+}
+
+void HolyShifterUI::updateControlsForMode()
+{
+    bool isClassic = (processingModeCombo_.getSelectedIndex() == 0);
+
+    // Spectral panel controls
+    pianoKeyboard_.setDimmed(isClassic);
+    quantizeSlider_.setDimmed(isClassic);
+    preserveSlider_.setDimmed(isClassic);
+    transientsSlider_.setDimmed(isClassic);
+    sensitivitySlider_.setDimmed(isClassic);
+
+    // Smear & Enhance
+    phaseVocoderToggle_.setDimmed(isClassic);
+    smearSlider_.setDimmed(isClassic);
+
+    // LFO depth mode (degrees only applies to spectral)
+    lfoDepthModeCombo_.setDimmed(isClassic);
+
+    // Mask
+    maskEnabledToggle_.setDimmed(isClassic);
+    maskModeCombo_.setDimmed(isClassic);
+    maskTransitionSlider_.setDimmed(isClassic);
+    maskLowFreqSlider_.setDimmed(isClassic);
+    maskHighFreqSlider_.setDimmed(isClassic);
 }
 
 void HolyShifterUI::drawStrip(visage::Canvas& canvas, int y, int h,
@@ -404,16 +433,17 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.text(currentPresetName_.c_str(), presetFont, visage::Font::kLeft, 84, 72, 340, 24);
 
     bool isSpectral = (processingModeCombo_.getSelectedIndex() == 1);
+    bool isClassic = !isSpectral;
 
     // Spectral panel background
-    canvas.setColor(holy::colors::panelBg);
+    canvas.setColor(holy::dimColor(holy::colors::panelBg, isClassic));
     canvas.roundedRectangle(240.0f, 104.0f, 432.0f, 180.0f, 6.0f);
-    canvas.setColor(holy::colors::panelBorder);
+    canvas.setColor(holy::dimColor(holy::colors::panelBorder, isClassic));
     canvas.roundedRectangleBorder(240.0f, 104.0f, 432.0f, 180.0f, 6.0f, 1.0f);
 
     // Strip sections
     int stripY = 296;
-    drawStrip(canvas, stripY, 56, "SMEAR & ENHANCE", !isSpectral);
+    drawStrip(canvas, stripY, 56, "SMEAR & ENHANCE", isClassic);
     stripY += 60;
     drawStrip(canvas, stripY, 78, "FREQ MODULATION");
     stripY += 82;
@@ -421,18 +451,18 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     stripY += 148;
     drawStrip(canvas, stripY, 78, "DELAY MODULATION");
     stripY += 82;
-    drawStrip(canvas, stripY, 86, "MASK", !isSpectral);
+    drawStrip(canvas, stripY, 86, "MASK", isClassic);
     stripY += 90;
     drawStrip(canvas, stripY, 50, "MIX");
 
     // === Labels (drawn on top of strips) ===
     auto labelFont = holy::makeFont(11.0f);
-    canvas.setColor(holy::colors::textSec);
 
     int margin = 28;
     int panelX = 252;
 
-    // Spectral panel labels
+    // Spectral panel labels (dimmed in Classic mode)
+    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
     int panelY = 198;
     int panelRowGap = 30;
     canvas.text("Quantize", labelFont, visage::Font::kRight, panelX, panelY, 60, 22);
@@ -442,16 +472,18 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.text("Transients", labelFont, visage::Font::kRight, panelX, panelY, 65, 22);
     canvas.text("Sensitivity", labelFont, visage::Font::kRight, panelX + 215, panelY, 65, 22);
 
-    // Smear strip label
+    // Smear strip label (dimmed in Classic mode)
     stripY = 296;
+    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
     canvas.text("Smear", labelFont, visage::Font::kRight, margin + 110, stripY + 24, 45, 22);
 
-    // Freq Modulation labels
+    // Freq Modulation labels (always visible)
     stripY = 356;
+    canvas.setColor(holy::colors::textSec);
     canvas.text("Depth", labelFont, visage::Font::kRight, margin, stripY + 24, 45, 22);
     canvas.text("Rate", labelFont, visage::Font::kRight, margin, stripY + 54, 45, 22);
 
-    // Delay labels
+    // Delay labels (always visible)
     stripY = 438;
     canvas.text("Time", labelFont, visage::Font::kRight, margin + 85, stripY + 24, 40, 22);
     canvas.text("Feedback", labelFont, visage::Font::kRight, margin, stripY + 54, 58, 22);
@@ -461,19 +493,21 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     int diffLabelX = margin + 50 + (w - margin * 2 - 118) / 2 + 8;
     canvas.text("Diffuse", labelFont, visage::Font::kLeft, diffLabelX, stripY + 84, 52, 22);
 
-    // Delay Modulation labels
+    // Delay Modulation labels (always visible)
     stripY = 586;
     canvas.text("Depth", labelFont, visage::Font::kRight, margin, stripY + 24, 45, 22);
     canvas.text("Rate", labelFont, visage::Font::kRight, margin, stripY + 54, 45, 22);
 
-    // Mask labels
+    // Mask labels (dimmed in Classic mode)
     stripY = 668;
+    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
     canvas.text("Transition", labelFont, visage::Font::kRight, margin + 195, stripY + 24, 65, 22);
     canvas.text("Low", labelFont, visage::Font::kRight, margin, stripY + 54, 30, 22);
     canvas.text("High", labelFont, visage::Font::kRight, margin + 35 + (w - margin * 2 - 75) / 2 + 10, stripY + 54, 35, 22);
 
-    // Mix label
+    // Mix label (always visible)
     stripY = 758;
+    canvas.setColor(holy::colors::textSec);
     canvas.text("Dry / Wet", labelFont, visage::Font::kRight, margin, stripY + 14, 65, 22);
 }
 

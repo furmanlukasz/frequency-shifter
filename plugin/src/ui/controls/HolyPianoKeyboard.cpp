@@ -70,6 +70,7 @@ void HolyPianoKeyboard::draw(visage::Canvas& canvas)
         if (attachments_[i])
             noteStates_[i] = attachments_[i]->getNormalisedValue() > 0.5f;
 
+    bool d = dimmed_;
     float r = 2.0f;
 
     // White keys
@@ -79,9 +80,9 @@ void HolyPianoKeyboard::draw(visage::Canvas& canvas)
         float kx, ky, kw, kh;
         getWhiteKeyRect(i, kx, ky, kw, kh);
 
-        canvas.setColor(noteStates_[pc] ? holy::colors::accent : 0xFF1E1E22u);
+        canvas.setColor(holy::dimColor(noteStates_[pc] ? holy::colors::accent : 0xFF1E1E22u, d));
         canvas.roundedRectangle(kx, ky, kw, kh, r);
-        canvas.setColor(0xFF2A2A2Eu);
+        canvas.setColor(holy::dimColor(0xFF2A2A2Eu, d));
         canvas.roundedRectangleBorder(kx, ky, kw, kh, r, 0.5f);
     }
 
@@ -92,15 +93,17 @@ void HolyPianoKeyboard::draw(visage::Canvas& canvas)
         float kx, ky, kw, kh;
         getBlackKeyRect(pc, kx, ky, kw, kh);
 
-        canvas.setColor(noteStates_[pc] ? holy::colors::accent : holy::colors::background);
+        canvas.setColor(holy::dimColor(noteStates_[pc] ? holy::colors::accent : holy::colors::background, d));
         canvas.roundedRectangle(kx, ky, kw, kh, r);
-        canvas.setColor(0xFF1A1A1Du);
+        canvas.setColor(holy::dimColor(0xFF1A1A1Du, d));
         canvas.roundedRectangleBorder(kx, ky, kw, kh, r, 0.5f);
     }
 }
 
 void HolyPianoKeyboard::mouseDown(const visage::MouseEvent& e)
 {
+    if (dimmed_)
+        return;
     int key = getKeyAtPoint(e.position.x, e.position.y);
     if (key < 0 || key >= 12 || !attachments_[key])
         return;

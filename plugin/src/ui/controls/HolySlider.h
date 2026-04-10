@@ -20,6 +20,8 @@ public:
 
     void setSuffix(const std::string& suffix) { suffix_ = suffix; }
     void setDecimals(int d) { decimals_ = d; }
+    void setDimmed(bool d) { if (dimmed_ != d) { dimmed_ = d; redraw(); } }
+    bool isDimmed() const { return dimmed_; }
 
 private:
     std::string formatValue() const;
@@ -28,6 +30,7 @@ private:
     std::unique_ptr<VisageParamAttachment> attachment_;
     std::string suffix_;
     int decimals_ = 1;
+    bool dimmed_ = false;
     bool dragging_ = false;
     float dragCurrentNorm_ = 0.0f;
     float dragStartNorm_ = 0.0f;
