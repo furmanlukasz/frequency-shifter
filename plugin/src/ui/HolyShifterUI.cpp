@@ -2,40 +2,43 @@
 #include "../PluginProcessor.h"
 #include "../dsp/Scales.h"
 
+// Unified division labels for all sync sliders (matches both arrays in PluginProcessor.h)
+static const std::vector<std::string> kDivisionLabels = {
+    "1/32", "1/16", "1/16 D", "1/8", "1/8 D", "1/4", "1/4 D",
+    "1/2", "1/1", "2/1", "3/1", "4/1", "8/1", "16/1"
+};
+
 HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     : processor_(processor),
       apvts_(processor.getValueTreeState()),
       presetPrevBtn_("<"),
       presetNextBtn_(">"),
-      warmToggle_("Warm"),
-      phaseVocoderToggle_("Enhanced"),
+      warmToggle_("WARM"),
+      phaseVocoderToggle_(""),       // label drawn manually (Figma: label before pill)
       lfoSyncToggle_("Sync"),
-      delayEnabledToggle_("Delay"),
+      delayEnabledToggle_(""),       // label is the strip header
       delaySyncToggle_("Sync"),
       dlyLfoSyncToggle_("Sync"),
-      maskEnabledToggle_("Mask")
+      maskEnabledToggle_("")         // label is the strip header
 {
-    // Wire all controls to parameters
+    // === Shift Knob ===
     shiftKnob_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_SHIFT_HZ);
     shiftKnob_.setBipolar(true);
     shiftKnob_.setUnit("HZ");
 
-    // Custom symmetric log mapping: knob range ±5000 Hz, param range ±20000 Hz
     constexpr double logScale = 10.0;
     constexpr double maxShift = 5000.0;
     double logMax = std::log(1.0 + maxShift / logScale);
 
-    // knobNorm (0-1) -> display Hz value (±5000)
     shiftKnob_.setCustomMapping(
-        [logScale, maxShift, logMax](float knobNorm) -> float {
+        [logScale, logMax](float knobNorm) -> float {
             double symNorm = knobNorm * 2.0 - 1.0;
             double sign = symNorm >= 0.0 ? 1.0 : -1.0;
             double absNorm = std::abs(symNorm);
             double absVal = logScale * (std::exp(absNorm * logMax) - 1.0);
             return static_cast<float>(sign * absVal);
         },
-        // knobNorm (0-1) -> paramNorm (0-1) [maps ±5000 display to ±20000 param]
-        [logScale, maxShift, logMax](float knobNorm) -> float {
+        [logScale, logMax](float knobNorm) -> float {
             double symNorm = knobNorm * 2.0 - 1.0;
             double sign = symNorm >= 0.0 ? 1.0 : -1.0;
             double absNorm = std::abs(symNorm);
@@ -43,12 +46,10 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
             double paramValue = sign * absVal;
             return static_cast<float>((paramValue + 20000.0) / 40000.0);
         },
-        // paramNorm (0-1) -> knobNorm (0-1)
         [logScale, logMax](float paramNorm) -> float {
             double paramValue = paramNorm * 40000.0 - 20000.0;
             double sign = paramValue >= 0.0 ? 1.0 : -1.0;
             double absVal = std::abs(paramValue);
-            // Clamp to ±5000 display range
             absVal = std::min(absVal, 5000.0);
             double normalized = sign * std::log(1.0 + absVal / logScale) / logMax;
             return static_cast<float>((normalized + 1.0) * 0.5);
@@ -56,10 +57,18 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     );
     addChild(&shiftKnob_);
 
+    // === Title bar ===
     warmToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_WARM);
     addChild(&warmToggle_);
 
-    // Preset strip
+    // === Mode selector ===
+    modeSelector_.addSegment("CLASSIC");
+    modeSelector_.addSegment("SPECTRAL");
+    modeSelector_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_PROCESSING_MODE);
+    modeSelector_.onChange = [this](int) { updateControlsForMode(); };
+    addChild(&modeSelector_);
+
+    // === Preset strip ===
     presetPrevBtn_.setText("<");
     presetPrevBtn_.onToggle() = [this](visage::Button*, bool) {
         processor_.getPresetManager().loadPreviousPreset();
@@ -78,12 +87,9 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
 
     currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
 
-    // Preset name clickable area (opens dropdown)
     presetNameArea_.onMouseDown() = [this](const visage::MouseEvent&) {
         if (presetDropdown_.isOpen())
-        {
             presetDropdown_.hide();
-        }
         else
         {
             auto pos = presetNameArea_.positionInWindow();
@@ -94,23 +100,15 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     };
     addChild(&presetNameArea_);
 
-    // Preset dropdown (added later for z-order, see end of constructor)
     presetDropdown_.onPresetChanged_ = [this]() {
         currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
         redraw();
     };
 
-    // Processing mode combo
-    processingModeCombo_.addItem("Classic");
-    processingModeCombo_.addItem("Spectral");
-    processingModeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_PROCESSING_MODE);
-    addChild(&processingModeCombo_);
-
-    // Piano keyboard
+    // === Spectral panel controls ===
     pianoKeyboard_.setAttachments(apvts_, FrequencyShifterProcessor::PARAM_SCALE_NOTE_PREFIX);
     addChild(&pianoKeyboard_);
 
-    // Spectral panel sliders
     quantizeSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_QUANTIZE_STRENGTH);
     addChild(&quantizeSlider_);
 
@@ -124,7 +122,6 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     sensitivitySlider_.setDecimals(0);
     addChild(&sensitivitySlider_);
 
-    // Smear & Enhance
     phaseVocoderToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_PHASE_VOCODER);
     addChild(&phaseVocoderToggle_);
 
@@ -132,49 +129,43 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     smearSlider_.setSuffix(" ms");
     addChild(&smearSlider_);
 
-    // LFO
+    // === Freq Modulation ===
     lfoDepthSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DEPTH);
     addChild(&lfoDepthSlider_);
 
+    // DepthMode combo — hidden, param still bound
     lfoDepthModeCombo_.addItem("Hz");
     lfoDepthModeCombo_.addItem("Degrees");
     lfoDepthModeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DEPTH_MODE);
     addChild(&lfoDepthModeCombo_);
 
-    lfoRateSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_RATE);
-    lfoRateSlider_.setSuffix(" Hz");
-    addChild(&lfoRateSlider_);
-
-    lfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_SYNC);
-    addChild(&lfoSyncToggle_);
-
-    for (auto& name : { "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
-                         "1/4T", "1/8T", "1/16T", "1/4.", "1/8.", "1/16." })
-        lfoDivisionCombo_.addItem(name);
-    lfoDivisionCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DIVISION);
-    addChild(&lfoDivisionCombo_);
-
+    // Shape combo — on the Depth row
     for (auto& name : { "Sine", "Triangle", "Saw", "Inv Saw", "Random" })
         lfoShapeCombo_.addItem(name);
     lfoShapeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_SHAPE);
     addChild(&lfoShapeCombo_);
 
-    // Delay
+    lfoRateSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_RATE);
+    lfoRateSlider_.setSuffix(" Hz");
+    lfoRateSlider_.setSyncAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DIVISION);
+    lfoRateSlider_.setSyncLabels(kDivisionLabels);
+    addChild(&lfoRateSlider_);
+
+    lfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_SYNC);
+    addChild(&lfoSyncToggle_);
+
+    // === Delay (dual-purpose Time slider) ===
     delayEnabledToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_ENABLED);
     addChild(&delayEnabledToggle_);
 
     delayTimeSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_TIME);
     delayTimeSlider_.setSuffix(" ms");
+    delayTimeSlider_.setSyncAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_DIVISION);
+    delayTimeSlider_.setSyncLabels(kDivisionLabels);
     addChild(&delayTimeSlider_);
 
     delaySyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_SYNC);
     addChild(&delaySyncToggle_);
-
-    for (auto& name : { "1/32", "1/16T", "1/16", "1/16D", "1/8T", "1/8", "1/8D", "1/4T",
-                         "1/4", "1/4D", "1/2T", "1/2", "1/2D", "1/1", "2/1", "4/1" })
-        delayDivisionCombo_.addItem(name);
-    delayDivisionCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_DIVISION);
-    addChild(&delayDivisionCombo_);
 
     delayFeedbackSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_FEEDBACK);
     addChild(&delayFeedbackSlider_);
@@ -189,35 +180,32 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     addChild(&delayDiffuseSlider_);
 
     stereoDecorrelateToggle_.setLabel("L/R Decorr");
+    stereoDecorrelateToggle_.setLabelColor(holy::colors::accent);  // Figma: #c9a96e
     stereoDecorrelateToggle_.onToggle = [this](bool on) {
         processor_.setStereoDecorrelate(on);
     };
     addChild(&stereoDecorrelateToggle_);
 
-    // Delay Modulation
+    // === Delay Modulation ===
     dlyLfoDepthSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_DEPTH);
     dlyLfoDepthSlider_.setSuffix(" ms");
     addChild(&dlyLfoDepthSlider_);
 
     dlyLfoRateSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_RATE);
     dlyLfoRateSlider_.setSuffix(" Hz");
+    dlyLfoRateSlider_.setSyncAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_DIVISION);
+    dlyLfoRateSlider_.setSyncLabels(kDivisionLabels);
     addChild(&dlyLfoRateSlider_);
 
     dlyLfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_SYNC);
     addChild(&dlyLfoSyncToggle_);
-
-    for (auto& name : { "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
-                         "1/4T", "1/8T", "1/16T", "1/4.", "1/8.", "1/16." })
-        dlyLfoDivisionCombo_.addItem(name);
-    dlyLfoDivisionCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_DIVISION);
-    addChild(&dlyLfoDivisionCombo_);
 
     for (auto& name : { "Sine", "Triangle", "Saw", "Inv Saw", "Random" })
         dlyLfoShapeCombo_.addItem(name);
     dlyLfoShapeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_SHAPE);
     addChild(&dlyLfoShapeCombo_);
 
-    // Mask
+    // === Mask ===
     maskEnabledToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_MASK_ENABLED);
     addChild(&maskEnabledToggle_);
 
@@ -239,7 +227,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     maskHighFreqSlider_.setDecimals(0);
     addChild(&maskHighFreqSlider_);
 
-    // Mix
+    // === Mix ===
     dryWetSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DRY_WET);
     addChild(&dryWetSlider_);
 
@@ -249,6 +237,9 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     HolyComboBox::setSharedDropdown(&dropdownOverlay_);
 
     updateControlsForMode();
+    updateDelaySyncUI();
+    updateLfoSyncUI();
+    updateDlyLfoSyncUI();
 }
 
 // === HolyPresetDropdown ===
@@ -318,18 +309,12 @@ void HolyPresetDropdown::draw(visage::Canvas& canvas)
 
 void HolyPresetDropdown::mouseDown(const visage::MouseEvent& e)
 {
-    if (!processor_)
-    {
-        hide();
-        return;
-    }
-
+    if (!processor_) { hide(); return; }
     int itemIdx = static_cast<int>((e.position.y - 2) / kItemHeight);
     if (itemIdx >= 0 && itemIdx < static_cast<int>(presetNames_.size()))
     {
         processor_->getPresetManager().loadPreset(presetNames_[itemIdx]);
-        if (onPresetChanged_)
-            onPresetChanged_();
+        if (onPresetChanged_) onPresetChanged_();
     }
     hide();
 }
@@ -339,39 +324,51 @@ void HolyPresetDropdown::mouseMove(const visage::MouseEvent& e)
     int newHover = static_cast<int>((e.position.y - 2) / kItemHeight);
     if (newHover < 0 || newHover >= static_cast<int>(presetNames_.size()))
         newHover = -1;
-    if (newHover != hoveredIndex_)
-    {
-        hoveredIndex_ = newHover;
-        redraw();
-    }
+    if (newHover != hoveredIndex_) { hoveredIndex_ = newHover; redraw(); }
+}
+
+// === Sync UI ===
+
+void HolyShifterUI::updateDelaySyncUI()
+{
+    bool synced = delaySyncToggle_.isOn();
+    delayTimeSlider_.setSynced(synced);
+}
+
+void HolyShifterUI::updateLfoSyncUI()
+{
+    bool synced = lfoSyncToggle_.isOn();
+    lfoRateSlider_.setSynced(synced);
+}
+
+void HolyShifterUI::updateDlyLfoSyncUI()
+{
+    bool synced = dlyLfoSyncToggle_.isOn();
+    dlyLfoRateSlider_.setSynced(synced);
 }
 
 void HolyShifterUI::pollState()
 {
     currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
     updateControlsForMode();
+    updateDelaySyncUI();
+    updateLfoSyncUI();
+    updateDlyLfoSyncUI();
     redrawAll();
 }
 
 void HolyShifterUI::updateControlsForMode()
 {
-    bool isClassic = (processingModeCombo_.getSelectedIndex() == 0);
+    bool isClassic = (modeSelector_.getSelectedIndex() == 0);
 
-    // Spectral panel controls
     pianoKeyboard_.setDimmed(isClassic);
     quantizeSlider_.setDimmed(isClassic);
     preserveSlider_.setDimmed(isClassic);
     transientsSlider_.setDimmed(isClassic);
     sensitivitySlider_.setDimmed(isClassic);
-
-    // Smear & Enhance
     phaseVocoderToggle_.setDimmed(isClassic);
     smearSlider_.setDimmed(isClassic);
-
-    // LFO depth mode (degrees only applies to spectral)
     lfoDepthModeCombo_.setDimmed(isClassic);
-
-    // Mask
     maskEnabledToggle_.setDimmed(isClassic);
     maskModeCombo_.setDimmed(isClassic);
     maskTransitionSlider_.setDimmed(isClassic);
@@ -379,235 +376,273 @@ void HolyShifterUI::updateControlsForMode()
     maskHighFreqSlider_.setDimmed(isClassic);
 }
 
+// === Strip drawing ===
+
 void HolyShifterUI::drawStrip(visage::Canvas& canvas, int y, int h,
                                 const std::string& label, bool dimmed)
 {
-    unsigned int stripAlpha = dimmed ? 0x4D0E0E10u : holy::colors::strip;
-    canvas.setColor(stripAlpha);
+    unsigned int stripCol = dimmed ? 0x4D0E0E10u : holy::colors::strip;
+    canvas.setColor(stripCol);
     canvas.fill(0, y, width(), h);
 
+    // Top border line (1px, Figma: #1a1a1d)
     canvas.setColor(holy::colors::stripBorder);
-    canvas.segment(0.0f, static_cast<float>(y), static_cast<float>(width()), static_cast<float>(y), 1.0f, false);
+    canvas.segment(0.0f, static_cast<float>(y), static_cast<float>(width()),
+                   static_cast<float>(y), 1.0f, false);
 
-    // Gold accent bar on left edge
-    unsigned int accentColor = dimmed ? 0x4DC9A96Eu : holy::colors::accent;
-    canvas.setColor(accentColor);
-    canvas.fill(0, y, 3, h);
-
-    // Section label
-    auto labelFont = holy::makeFont(10.0f);
+    // Section label (Figma: 8px Inter Medium, tracking 1.6px, gold, at x=14, y=y+6)
+    auto labelFont = holy::makeFont(8.0f);
     canvas.setColor(dimmed ? holy::colors::textMuted : holy::colors::accent);
-    canvas.text(label.c_str(), labelFont, visage::Font::kLeft, 14, y + 4, 180, 14);
+    canvas.text(label.c_str(), labelFont, visage::Font::kLeft, 14, y + 6, 180, 10);
 }
+
+// === Gradient accent line helper ===
+static void drawGradientAccentLine(visage::Canvas& canvas, int y, int w, float maxAlpha)
+{
+    // Approximate Figma gradient: transparent → rgba(107,93,61,0.6) → #C9A96E → rgba(107,93,61,0.6) → transparent
+    // Using 20 segments for smooth approximation
+    constexpr int segs = 20;
+    float segW = static_cast<float>(w) / segs;
+    for (int s = 0; s < segs; ++s)
+    {
+        float t = (static_cast<float>(s) + 0.5f) / static_cast<float>(segs);
+        float alpha;
+        if (t < 0.3f)
+            alpha = (t / 0.3f) * 0.6f;
+        else if (t < 0.5f)
+            alpha = 0.6f + ((t - 0.3f) / 0.2f) * 0.4f;
+        else if (t < 0.7f)
+            alpha = 1.0f - ((t - 0.5f) / 0.2f) * 0.4f;
+        else
+            alpha = 0.6f * (1.0f - (t - 0.7f) / 0.3f);
+        alpha *= maxAlpha;
+        unsigned int a = static_cast<unsigned int>(alpha * 255.0f);
+        canvas.setColor((a << 24) | 0x00C9A96Eu);
+        int sx = static_cast<int>(s * segW);
+        int ex = static_cast<int>((s + 1) * segW);
+        canvas.fill(sx, y, ex - sx, 1);
+    }
+}
+
+// === Draw — all positions from Figma metadata (pixel-perfect) ===
 
 void HolyShifterUI::draw(visage::Canvas& canvas)
 {
     int w = width();
     int h = height();
 
-    // Background
+    // Background (Figma: #0a0a0c)
     canvas.setColor(holy::colors::background);
     canvas.fill(0, 0, w, h);
 
-    // Title
-    auto titleFont = holy::makeFont(28.0f);
-    canvas.setColor(holy::colors::text);
-    canvas.text("H O L Y   S H I F T E R", titleFont, visage::Font::kLeft, 28, 16, 400, 32);
+    // Top accent gradient line (Figma: y=-1, 1px, gradient gold)
+    drawGradientAccentLine(canvas, 0, w, 1.0f);
 
-    // Subtitle
-    auto subtitleFont = holy::makeFont(12.0f);
+    // Title (Figma: Inter Thin 26px, #e8e4db, tracking 9.1px, at x=27, y=13)
+    auto titleFont = holy::makeFont(26.0f);
+    canvas.setColor(holy::colors::text);
+    canvas.text("H O L Y   S H I F T E R", titleFont, visage::Font::kLeft, 27, 13, 440, 31);
+
+    // Subtitle (Figma: Inter Regular 10px, #3e3a34, at x=29, y=45)
+    auto subtitleFont = holy::makeFont(10.0f);
     canvas.setColor(holy::colors::textMuted);
     canvas.text("Frequency Shifter with Harmonic Quantisation", subtitleFont,
-                visage::Font::kLeft, 28, 48, 400, 16);
+                visage::Font::kLeft, 29, 45, 400, 12);
 
-    // Preset strip background (below subtitle)
-    canvas.setColor(holy::colors::strip);
-    canvas.fill(0, 68, w, 30);
+    // Preset separator line (Figma: y=94, 1px, #1a1a1d — no bg fill for preset area)
     canvas.setColor(holy::colors::stripBorder);
-    canvas.segment(0.0f, 68.0f, static_cast<float>(w), 68.0f, 1.0f, false);
-    canvas.segment(0.0f, 98.0f, static_cast<float>(w), 98.0f, 1.0f, false);
+    canvas.segment(0.0f, 94.0f, static_cast<float>(w), 94.0f, 1.0f, false);
 
-    // Preset name
-    auto presetFont = holy::makeFont(13.0f);
+    // Preset name (Figma: Inter Regular 12px, #e8e4db, at x=91, y=69)
+    auto presetFont = holy::makeFont(12.0f);
     canvas.setColor(holy::colors::text);
-    canvas.text(currentPresetName_.c_str(), presetFont, visage::Font::kLeft, 84, 72, 340, 24);
+    canvas.text(currentPresetName_.c_str(), presetFont, visage::Font::kLeft, 91, 69, 300, 20);
 
-    bool isSpectral = (processingModeCombo_.getSelectedIndex() == 1);
+    // Mode selector strip (Figma: bg #0c0c0e, y=101, h=36, top line #1a1a1d)
+    canvas.setColor(holy::colors::modeSelectorBg);
+    canvas.fill(0, 101, w, 36);
+    canvas.setColor(holy::colors::stripBorder);
+    canvas.segment(0.0f, 101.0f, static_cast<float>(w), 101.0f, 1.0f, false);
+
+    bool isSpectral = (modeSelector_.getSelectedIndex() == 1);
     bool isClassic = !isSpectral;
 
-    // Spectral panel background
-    canvas.setColor(holy::dimColor(holy::colors::panelBg, isClassic));
-    canvas.roundedRectangle(240.0f, 104.0f, 432.0f, 180.0f, 6.0f);
+    // Spectral panel (Figma: x=243, y=137, w=430, h=262, bg #19191d, border #1c1c20)
+    canvas.setColor(holy::dimColor(holy::colors::panelGradTop, isClassic));
+    canvas.roundedRectangle(243.0f, 137.0f, 430.0f, 262.0f, 6.0f);
+    // Border
     canvas.setColor(holy::dimColor(holy::colors::panelBorder, isClassic));
-    canvas.roundedRectangleBorder(240.0f, 104.0f, 432.0f, 180.0f, 6.0f, 1.0f);
+    canvas.roundedRectangleBorder(243.0f, 137.0f, 430.0f, 262.0f, 6.0f, 1.0f);
+    // Top gold accent line inside panel (Figma: 2px, subtle gold gradient rgba(201,169,110,0.12))
+    canvas.setColor(holy::dimColor(0x1FC9A96Eu, isClassic));
+    canvas.fill(244, 137, 428, 2);
 
-    // Strip sections
-    int stripY = 296;
-    drawStrip(canvas, stripY, 56, "SMEAR & ENHANCE", isClassic);
-    stripY += 60;
-    drawStrip(canvas, stripY, 78, "FREQ MODULATION");
-    stripY += 82;
-    drawStrip(canvas, stripY, 144, "DELAY");
-    stripY += 148;
-    drawStrip(canvas, stripY, 78, "DELAY MODULATION");
-    stripY += 82;
-    drawStrip(canvas, stripY, 86, "MASK", isClassic);
-    stripY += 90;
-    drawStrip(canvas, stripY, 50, "MIX");
+    // "SPECTRAL CONTROLS" header (Figma: 8px, tracking 1.6px, gold, at panel-rel 13,9)
+    auto panelHeaderFont = holy::makeFont(8.0f);
+    canvas.setColor(holy::dimColor(holy::colors::accent, isClassic));
+    canvas.text("SPECTRAL CONTROLS", panelHeaderFont, visage::Font::kLeft, 256, 146, 150, 10);
 
-    // === Labels (drawn on top of strips) ===
-    auto labelFont = holy::makeFont(11.0f);
+    // === Strip sections — exact Figma positions ===
+    drawStrip(canvas, 405, 110, "FREQ MODULATION");
 
-    int margin = 28;
-    int panelX = 252;
+    // Freq Mod has drop shadow (Figma: 0px 4px 4px rgba(0,0,0,0.25)) — approximate
+    canvas.setColor(0x10000000u);
+    canvas.fill(0, 515, w, 2);
 
-    // Spectral panel labels (dimmed in Classic mode)
+    drawStrip(canvas, 517, 134, "DELAY");
+    drawStrip(canvas, 651,  92, "DELAY MODULATION");
+
+    // Mask strip (Figma: bg #19191d, different from other strips)
+    canvas.setColor(holy::dimColor(holy::colors::maskBg, isClassic));
+    canvas.fill(0, 761, w, 90);
+    canvas.setColor(holy::colors::stripBorder);
+    canvas.segment(0.0f, 761.0f, static_cast<float>(w), 761.0f, 1.0f, false);
+    {
+        auto maskLabelFont = holy::makeFont(8.0f);
+        canvas.setColor(isClassic ? holy::colors::textMuted : holy::colors::accent);
+        canvas.text("MASK", maskLabelFont, visage::Font::kLeft, 14, 767, 50, 10);
+    }
+
+    // Mix footer (Figma: gradient #0f0f11→#0a0a0c, h=72)
+    canvas.setColor(holy::colors::mixGradTop);
+    canvas.fill(0, 851, w, 36);
+    canvas.setColor(holy::colors::background);
+    canvas.fill(0, 887, w, 36);
+    canvas.setColor(holy::colors::stripBorder);
+    canvas.segment(0.0f, 851.0f, static_cast<float>(w), 851.0f, 1.0f, false);
+    {
+        auto mixLabelFont = holy::makeFont(8.0f);
+        canvas.setColor(holy::colors::accent);
+        canvas.text("MIX", mixLabelFont, visage::Font::kLeft, 14, 857, 50, 10);
+    }
+
+    // Separator gradient lines (Figma: 2px gold gradient at y=515 and y=759)
+    drawGradientAccentLine(canvas, 515, w, 0.5f);
+    drawGradientAccentLine(canvas, 516, w, 0.3f);
+    drawGradientAccentLine(canvas, 759, w, 0.5f);
+    drawGradientAccentLine(canvas, 760, w, 0.3f);
+
+    // Bottom accent gradient line (Figma: y=926, 1px, 50% intensity)
+    drawGradientAccentLine(canvas, 926, w, 0.5f);
+
+    // === Labels — exact Figma positions ===
+    auto labelFont = holy::makeFont(10.0f);
+
+    // Spectral panel labels (panel at 243, 137; all dimmed in Classic mode)
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
-    int panelY = 198;
-    int panelRowGap = 30;
-    canvas.text("Quantize", labelFont, visage::Font::kRight, panelX, panelY, 60, 22);
-    panelY += panelRowGap;
-    canvas.text("Envelope", labelFont, visage::Font::kRight, panelX, panelY, 60, 22);
-    panelY += panelRowGap;
-    canvas.text("Transients", labelFont, visage::Font::kRight, panelX, panelY, 65, 22);
-    canvas.text("Sensitivity", labelFont, visage::Font::kRight, panelX + 215, panelY, 65, 22);
+    canvas.text("Quantize",   labelFont, visage::Font::kRight, 252, 216, 62, 20);
+    canvas.text("Envelope",   labelFont, visage::Font::kRight, 252, 246, 62, 20);
+    canvas.text("Transients", labelFont, visage::Font::kRight, 252, 276, 62, 20);
+    canvas.text("Sens",       labelFont, visage::Font::kRight, 441, 296, 30, 20);
 
-    // Smear strip label (dimmed in Classic mode)
-    stripY = 296;
+    // "Enhanced" label (Figma: panel-rel x=22, y=184 → absolute 265, 321)
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
-    canvas.text("Smear", labelFont, visage::Font::kRight, margin + 110, stripY + 24, 45, 22);
+    canvas.text("Enhanced", labelFont, visage::Font::kLeft, 265, 321, 51, 20);
 
-    // Freq Modulation labels (always visible)
-    stripY = 356;
+    // "Smear" label (Figma: panel-rel x=30, y=224 → absolute 273, 361)
+    canvas.text("Smear", labelFont, visage::Font::kLeft, 273, 361, 40, 20);
+
+    // Smear tooltip (Figma: panel-rel x=142, y=238 → absolute 385, 375; Inter Light 8px)
+    auto tooltipFont = holy::makeFont(8.0f);
+    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
+    canvas.text("(Adjust with Care when track playing)", tooltipFont, visage::Font::kLeft,
+                385, 375, 250, 10);
+
+    // Freq Modulation labels (strip at y=405)
     canvas.setColor(holy::colors::textSec);
-    canvas.text("Depth", labelFont, visage::Font::kRight, margin, stripY + 24, 45, 22);
-    canvas.text("Rate", labelFont, visage::Font::kRight, margin, stripY + 54, 45, 22);
+    canvas.text("Depth", labelFont, visage::Font::kRight, 27, 432, 42, 20);
+    canvas.text("Rate",  labelFont, visage::Font::kRight, 27, 462, 42, 20);
 
-    // Delay labels (always visible)
-    stripY = 438;
-    canvas.text("Time", labelFont, visage::Font::kRight, margin + 85, stripY + 24, 40, 22);
-    canvas.text("Feedback", labelFont, visage::Font::kRight, margin, stripY + 54, 58, 22);
-    int dampLabelX = margin + 62 + (w - margin * 2 - 130) / 2 + 8;
-    canvas.text("Damping", labelFont, visage::Font::kLeft, dampLabelX, stripY + 54, 58, 22);
-    canvas.text("Slope", labelFont, visage::Font::kRight, margin, stripY + 84, 45, 22);
-    int diffLabelX = margin + 50 + (w - margin * 2 - 118) / 2 + 8;
-    canvas.text("Diffuse", labelFont, visage::Font::kLeft, diffLabelX, stripY + 84, 52, 22);
+    // Delay labels (strip at y=517)
+    canvas.text("Time",     labelFont, visage::Font::kRight, 116, 543, 36, 20);
+    canvas.text("Feedback", labelFont, visage::Font::kRight, 28,  577, 60, 20);
+    canvas.text("Damping",  labelFont, visage::Font::kRight, 348, 577, 58, 20);
+    canvas.text("Slope",    labelFont, visage::Font::kRight, 28,  611, 42, 20);
+    canvas.text("Diffuse",  labelFont, visage::Font::kRight, 348, 611, 48, 20);
 
-    // Delay Modulation labels (always visible)
-    stripY = 586;
-    canvas.text("Depth", labelFont, visage::Font::kRight, margin, stripY + 24, 45, 22);
-    canvas.text("Rate", labelFont, visage::Font::kRight, margin, stripY + 54, 45, 22);
+    // Delay Modulation labels (strip at y=651)
+    canvas.text("Depth", labelFont, visage::Font::kRight, 28, 679, 42, 20);
+    canvas.text("Rate",  labelFont, visage::Font::kRight, 28, 709, 42, 20);
 
-    // Mask labels (dimmed in Classic mode)
-    stripY = 668;
+    // Mask labels (dimmed in Classic)
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
-    canvas.text("Transition", labelFont, visage::Font::kRight, margin + 195, stripY + 24, 65, 22);
-    canvas.text("Low", labelFont, visage::Font::kRight, margin, stripY + 54, 30, 22);
-    canvas.text("High", labelFont, visage::Font::kRight, margin + 35 + (w - margin * 2 - 75) / 2 + 10, stripY + 54, 35, 22);
+    canvas.text("Transition", labelFont, visage::Font::kRight, 218, 787, 60, 20);
+    canvas.text("Low",        labelFont, visage::Font::kRight, 28,  819, 28, 20);
+    canvas.text("High",       labelFont, visage::Font::kRight, 369, 819, 30, 20);
 
-    // Mix label (always visible)
-    stripY = 758;
+    // Mix label (Figma: Inter Medium 10px, tracking 1px, #8a857d)
     canvas.setColor(holy::colors::textSec);
-    canvas.text("Dry / Wet", labelFont, visage::Font::kRight, margin, stripY + 14, 65, 22);
+    canvas.text("DRY / WET", labelFont, visage::Font::kRight, 28, 883, 72, 20);
 }
+
+// === Layout — exact Figma coordinates (pixel-perfect) ===
 
 void HolyShifterUI::resized()
 {
-    int margin = 28;
+    // === Preset area (Figma: ◂ at x=46 centered, ▸ at x=70 centered, name at x=91, y=69) ===
+    presetPrevBtn_.setBounds(36, 71, 20, 20);
+    presetNextBtn_.setBounds(60, 71, 20, 20);
+    presetNameArea_.setBounds(91, 69, 300, 20);
 
-    // Title bar
-    warmToggle_.setBounds(width() - margin - 80, 24, 80, 24);
+    // === Mode Selector row (Figma: frame y=101, h=36) ===
+    modeSelector_.setBounds(28, 106, 220, 26);   // Figma: (28, 106, 220, 26)
+    warmToggle_.setBounds(591, 107, 80, 24);      // Figma: (591, 107, 80, 24)
 
-    // Preset strip (below subtitle at y=68)
-    int presetY = 71;
-    presetPrevBtn_.setBounds(margin, presetY, 24, 24);
-    presetNextBtn_.setBounds(margin + 26, presetY, 24, 24);
-    presetNameArea_.setBounds(margin + 56, presetY, 340, 24);
+    // === Shift Knob (Figma: 27, 168, 210, 218) ===
+    shiftKnob_.setBounds(27, 168, 210, 218);
 
-    // Main shift knob
-    shiftKnob_.setBounds(28, 104, 200, 200);
+    // === Spectral Panel (Figma: panel at 243, 137, 430, 262) ===
+    int px = 243;
+    int py = 137;
 
-    // Spectral panel
-    processingModeCombo_.setBounds(252, 112, 100, 24);
+    pianoKeyboard_.setBounds(px + 13, py + 27, 400, 42);       // Figma: (13, 27, 400, 42)
+    quantizeSlider_.setBounds(px + 77, py + 79, 334, 20);      // track at 77, value text extends to ~411
+    preserveSlider_.setBounds(px + 77, py + 109, 334, 20);     // Envelope row
+    transientsSlider_.setBounds(px + 77, py + 139, 334, 20);   // Transients row
+    sensitivitySlider_.setBounds(px + 234, py + 159, 177, 20); // Sens track at 234, w=120
+    phaseVocoderToggle_.setBounds(px + 80, py + 184, 30, 15);  // Enhanced toggle pill
+    smearSlider_.setBounds(px + 77, py + 221, 343, 20);        // Smear track at 77, w=286
 
-    int panelX = 252;
-    int panelY = 146;
-    int panelRowGap = 30;
+    // DepthMode combo — hidden
+    lfoDepthModeCombo_.setBounds(0, 0, 0, 0);
 
-    pianoKeyboard_.setBounds(panelX, panelY, 320, 46);
-    panelY += 52;
+    // === Freq Modulation (Figma: strip at y=405, h=110) ===
+    int fmY = 405;
 
-    quantizeSlider_.setBounds(panelX + 65, panelY, 280, 22);
-    panelY += panelRowGap;
+    lfoDepthSlider_.setBounds(75, fmY + 26, 430, 22);          // Depth: track at 75, w=385
+    lfoRateSlider_.setBounds(75, fmY + 57, 356, 22);           // Rate: track at 75, w=290 (dual-purpose)
+    lfoSyncToggle_.setBounds(451, fmY + 57, 75, 24);           // Sync toggle
+    lfoShapeCombo_.setBounds(579, fmY + 58, 76, 22);           // Shape combo on Rate row (Figma: x=579)
 
-    preserveSlider_.setBounds(panelX + 65, panelY, 280, 22);
-    panelY += panelRowGap;
+    // === Delay (Figma: strip at y=517, h=134) ===
+    int dlY = 517;
 
-    transientsSlider_.setBounds(panelX + 68, panelY, 140, 22);
-    sensitivitySlider_.setBounds(panelX + 282, panelY, 100, 22);
+    delayEnabledToggle_.setBounds(55, dlY + 6, 30, 15);        // Enable toggle pill
+    delayTimeSlider_.setBounds(158, dlY + 26, 346, 22);        // Time: track at 158, w=280
+    delaySyncToggle_.setBounds(523, dlY + 26, 80, 24);         // Sync toggle
+    delayFeedbackSlider_.setBounds(94, dlY + 60, 238, 22);     // Feedback: track at 94, w=200
+    delayDampingSlider_.setBounds(416, dlY + 60, 260, 22);     // Damping: track at 416, w=190
+    delaySlopeSlider_.setBounds(76, dlY + 94, 256, 22);        // Slope: track at 76, w=218
+    delayDiffuseSlider_.setBounds(408, dlY + 94, 268, 22);     // Diffuse: track at 408, w=198
+    stereoDecorrelateToggle_.setBounds(582, dlY + 114, 110, 18); // L/R Decorr
 
-    // Strip sections
-    int stripY = 296;
-    int stripPad = 24;
+    // === Delay Modulation (Figma: strip at y=651, h=92) ===
+    int dmY = 651;
 
-    // Smear & Enhance
-    phaseVocoderToggle_.setBounds(margin, stripY + stripPad, 100, 24);
-    smearSlider_.setBounds(margin + 160, stripY + stripPad, width() - margin * 2 - 170, 22);
-    stripY += 60;
+    dlyLfoDepthSlider_.setBounds(76, dmY + 28, 448, 22);       // Depth: track at 76, w=389 (Figma updated)
+    dlyLfoRateSlider_.setBounds(76, dmY + 58, 356, 22);        // Rate: track at 76, w=290 (dual-purpose)
+    dlyLfoSyncToggle_.setBounds(452, dmY + 58, 75, 24);        // Sync
+    dlyLfoShapeCombo_.setBounds(584, dmY + 56, 76, 22);        // Shape (Figma: x=584)
 
-    // Freq Modulation
-    int lfoY = stripY + stripPad;
-    lfoDepthSlider_.setBounds(margin + 50, lfoY, width() - margin * 2 - 190, 22);
-    lfoDepthModeCombo_.setBounds(width() - margin - 130, lfoY, 75, 24);
-    lfoY += 30;
-    lfoRateSlider_.setBounds(margin + 50, lfoY, width() - margin * 2 - 280, 22);
-    lfoSyncToggle_.setBounds(width() - margin - 220, lfoY, 75, 24);
-    lfoDivisionCombo_.setBounds(width() - margin - 140, lfoY, 58, 24);
-    lfoShapeCombo_.setBounds(width() - margin - 78, lfoY, 78, 24);
-    stripY += 82;
+    // === Mask (Figma: strip at y=761, h=90) ===
+    int mkY = 761;
 
-    // Delay
-    int delY = stripY + stripPad;
-    delayEnabledToggle_.setBounds(margin, delY, 75, 24);
-    delayTimeSlider_.setBounds(margin + 130, delY, width() - margin * 2 - 290, 22);
-    delaySyncToggle_.setBounds(width() - margin - 150, delY, 75, 24);
-    delayDivisionCombo_.setBounds(width() - margin - 68, delY, 68, 24);
-    delY += 30;
-    int halfW = (width() - margin * 2 - 130) / 2;
-    delayFeedbackSlider_.setBounds(margin + 62, delY, halfW, 22);
-    int dampX = margin + 62 + halfW + 8;
-    delayDampingSlider_.setBounds(dampX + 60, delY, width() - margin - dampX - 60, 22);
-    delY += 30;
-    delaySlopeSlider_.setBounds(margin + 50, delY, halfW, 22);
-    int diffX = margin + 50 + halfW + 8;
-    delayDiffuseSlider_.setBounds(diffX + 55, delY, width() - margin - diffX - 55, 22);
-    delY += 30;
-    stereoDecorrelateToggle_.setBounds(width() - margin - 110, delY, 110, 22);
-    stripY += 148;
+    maskEnabledToggle_.setBounds(56, mkY + 6, 30, 15);         // Enable toggle pill
+    maskModeCombo_.setBounds(88, mkY + 23, 90, 22);            // Band Pass combo
+    maskTransitionSlider_.setBounds(284, mkY + 26, 191, 22);   // Transition slider
+    maskLowFreqSlider_.setBounds(62, mkY + 58, 301, 22);       // Low freq slider
+    maskHighFreqSlider_.setBounds(405, mkY + 58, 261, 22);     // High freq slider
 
-    // Delay Modulation
-    int dlyLfoY = stripY + stripPad;
-    dlyLfoDepthSlider_.setBounds(margin + 50, dlyLfoY, width() - margin * 2 - 60, 22);
-    dlyLfoY += 30;
-    dlyLfoRateSlider_.setBounds(margin + 50, dlyLfoY, width() - margin * 2 - 280, 22);
-    dlyLfoSyncToggle_.setBounds(width() - margin - 220, dlyLfoY, 75, 24);
-    dlyLfoDivisionCombo_.setBounds(width() - margin - 140, dlyLfoY, 58, 24);
-    dlyLfoShapeCombo_.setBounds(width() - margin - 78, dlyLfoY, 78, 24);
-    stripY += 82;
-
-    // Mask
-    int maskY = stripY + stripPad;
-    maskEnabledToggle_.setBounds(margin, maskY, 75, 24);
-    maskModeCombo_.setBounds(margin + 85, maskY, 95, 24);
-    maskTransitionSlider_.setBounds(margin + 262, maskY, width() - margin * 2 - 270, 22);
-    maskY += 30;
-    int maskHalfW = (width() - margin * 2 - 75) / 2;
-    maskLowFreqSlider_.setBounds(margin + 35, maskY, maskHalfW, 22);
-    int highX = margin + 35 + maskHalfW + 10;
-    maskHighFreqSlider_.setBounds(highX + 38, maskY, width() - margin - highX - 38, 22);
-    stripY += 90;
-
-    // Mix
-    int mixY = stripY + 14;
-    dryWetSlider_.setBounds(margin + 70, mixY, width() - margin * 2 - 80, 22);
+    // === Mix Footer (Figma: strip at y=851, h=72) ===
+    dryWetSlider_.setBounds(108, 851 + 28, 545, 22);           // DRY/WET: track at 108, w=494
 }

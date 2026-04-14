@@ -6,6 +6,7 @@
 #include "controls/HolyToggle.h"
 #include "controls/HolyComboBox.h"
 #include "controls/HolyPianoKeyboard.h"
+#include "controls/HolySegmentedControl.h"
 #include <visage_ui/frame.h>
 #include <visage_widgets/button.h>
 #include <JuceHeader.h>
@@ -43,7 +44,7 @@ public:
 
     void resized() override;
     void draw(visage::Canvas& canvas) override;
-    void pollState();  // Called by timer to sync preset name and redraw
+    void pollState();
 
     static constexpr int kBaseW = 700;
     static constexpr int kBaseH = 928;
@@ -52,6 +53,9 @@ private:
     void drawStrip(visage::Canvas& canvas, int y, int h,
                    const std::string& label, bool dimmed = false);
     void updateControlsForMode();
+    void updateDelaySyncUI();
+    void updateLfoSyncUI();
+    void updateDlyLfoSyncUI();
 
     FrequencyShifterProcessor& processor_;
     juce::AudioProcessorValueTreeState& apvts_;
@@ -59,40 +63,38 @@ private:
     // Title bar
     HolyToggle warmToggle_;
 
+    // Mode selector (segmented control)
+    HolySegmentedControl modeSelector_;
+
     // Preset strip
     visage::UiButton presetPrevBtn_;
     visage::UiButton presetNextBtn_;
-    visage::Frame presetNameArea_;  // clickable area that opens preset dropdown
+    visage::Frame presetNameArea_;
     std::string currentPresetName_;
 
     // Main shift knob
     HolyRotaryKnob shiftKnob_;
 
-    // Spectral panel
-    HolyComboBox processingModeCombo_;
+    // Spectral panel (includes keyboard, sliders, Enhanced, Smear)
     HolyPianoKeyboard pianoKeyboard_;
     HolySlider quantizeSlider_;
     HolySlider preserveSlider_;
     HolySlider transientsSlider_;
     HolySlider sensitivitySlider_;
-
-    // Smear & Enhance
-    HolyToggle phaseVocoderToggle_;
+    HolyToggle phaseVocoderToggle_;  // Enhanced
     HolySlider smearSlider_;
 
     // Freq Modulation
     HolySlider lfoDepthSlider_;
-    HolyComboBox lfoDepthModeCombo_;
-    HolySlider lfoRateSlider_;
+    HolyComboBox lfoDepthModeCombo_;   // Hz/Degrees (hidden, kept for param binding)
+    HolyComboBox lfoShapeCombo_;       // Sine/Tri/Saw/etc — on Rate row (per Figma)
+    HolySlider lfoRateSlider_;         // dual-purpose: Hz when free, divisions when synced
     HolyToggle lfoSyncToggle_;
-    HolyComboBox lfoDivisionCombo_;
-    HolyComboBox lfoShapeCombo_;
 
     // Delay
     HolyToggle delayEnabledToggle_;
-    HolySlider delayTimeSlider_;
+    HolySlider delayTimeSlider_;       // dual-purpose: ms when free, divisions when synced
     HolyToggle delaySyncToggle_;
-    HolyComboBox delayDivisionCombo_;
     HolySlider delayFeedbackSlider_;
     HolySlider delayDampingSlider_;
     HolySlider delaySlopeSlider_;
@@ -101,9 +103,8 @@ private:
 
     // Delay Modulation
     HolySlider dlyLfoDepthSlider_;
-    HolySlider dlyLfoRateSlider_;
+    HolySlider dlyLfoRateSlider_;       // dual-purpose: Hz when free, divisions when synced
     HolyToggle dlyLfoSyncToggle_;
-    HolyComboBox dlyLfoDivisionCombo_;
     HolyComboBox dlyLfoShapeCombo_;
 
     // Mask

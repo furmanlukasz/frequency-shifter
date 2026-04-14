@@ -12,6 +12,11 @@ VISAGE_THEME_COLOR(HolyBorder,        0xFF1E1E22);
 VISAGE_THEME_COLOR(HolyBorderDim,     0xFF151517);
 VISAGE_THEME_COLOR(HolyPanelBg,       0xFF0D0D0F);
 VISAGE_THEME_COLOR(HolyPanelBorder,   0xFF1C1C20);
+VISAGE_THEME_COLOR(HolyModeSelectorBg,0xFF0C0C0E);
+VISAGE_THEME_COLOR(HolyMaskBg,        0xFF19191D);
+VISAGE_THEME_COLOR(HolyPanelGradTop,  0xFF19191D);
+VISAGE_THEME_COLOR(HolyPanelGradBot,  0xFF101013);
+VISAGE_THEME_COLOR(HolyMixGradTop,    0xFF0F0F11);
 
 VISAGE_THEME_COLOR(HolyText,          0xFFE8E4DB);
 VISAGE_THEME_COLOR(HolyTextSec,       0xFF8A857D);
@@ -70,6 +75,12 @@ namespace holy {
         static constexpr unsigned int textMuted   = 0xFF3E3A34;
         static constexpr unsigned int accent      = 0xFFC9A96E;
         static constexpr unsigned int accentDim   = 0xFF6B5D3D;
+        static constexpr unsigned int accentHalf  = 0x80C9A96E; // 50% alpha accent
         static constexpr unsigned int track       = 0xFF252320;
+        static constexpr unsigned int modeSelectorBg = 0xFF0C0C0E;
+        static constexpr unsigned int maskBg      = 0xFF19191D;
+        static constexpr unsigned int panelGradTop= 0xFF19191D;
+        static constexpr unsigned int panelGradBot= 0xFF101013;
+        static constexpr unsigned int mixGradTop  = 0xFF0F0F11;
     }
 }

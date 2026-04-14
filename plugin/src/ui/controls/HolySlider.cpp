@@ -10,6 +10,33 @@ void HolySlider::setAttachment(juce::AudioProcessorValueTreeState& apvts,
     attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
 }
 
+void HolySlider::setSyncAttachment(juce::AudioProcessorValueTreeState& apvts,
+                                    const juce::String& paramId)
+{
+    syncAttachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
+}
+
+void HolySlider::setSyncLabels(const std::vector<std::string>& labels)
+{
+    syncLabels_ = labels;
+}
+
+void HolySlider::setSynced(bool synced)
+{
+    if (synced_ != synced)
+    {
+        synced_ = synced;
+        redraw();
+    }
+}
+
+VisageParamAttachment* HolySlider::activeAttachment() const
+{
+    if (synced_ && syncAttachment_)
+        return syncAttachment_.get();
+    return attachment_.get();
+}
+
 float HolySlider::getSliderWidth() const
 {
     return std::max(1.0f, static_cast<float>(width()) - kTextWidth);
@@ -17,9 +44,20 @@ float HolySlider::getSliderWidth() const
 
 std::string HolySlider::formatValue() const
 {
-    if (!attachment_)
+    auto* att = activeAttachment();
+    if (!att)
         return "0";
-    float val = attachment_->getValue();
+
+    if (synced_ && !syncLabels_.empty())
+    {
+        // Show division label
+        float norm = att->getNormalisedValue();
+        int idx = static_cast<int>(std::round(norm * static_cast<float>(syncLabels_.size() - 1)));
+        idx = std::clamp(idx, 0, static_cast<int>(syncLabels_.size()) - 1);
+        return syncLabels_[idx];
+    }
+
+    float val = att->getValue();
     char buf[32];
     if (decimals_ == 0)
         std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(val));
@@ -35,8 +73,9 @@ void HolySlider::draw(visage::Canvas& canvas)
     float sliderW = getSliderWidth();
     bool d = dimmed_;
 
+    auto* att = activeAttachment();
     float norm = dragging_ ? dragCurrentNorm_
-                           : (attachment_ ? attachment_->getNormalisedValue() : 0.0f);
+                           : (att ? att->getNormalisedValue() : 0.0f);
 
     float trackH = 1.5f;
     float trackY = h * 0.5f - trackH * 0.5f;
@@ -51,6 +90,18 @@ void HolySlider::draw(visage::Canvas& canvas)
     {
         canvas.setColor(holy::dimColor(holy::colors::accent, d));
         canvas.roundedRectangle(0, trackY, fillW, trackH, trackH * 0.5f);
+    }
+
+    // Snap tick marks when synced
+    if (synced_ && !syncLabels_.empty())
+    {
+        int n = static_cast<int>(syncLabels_.size());
+        for (int i = 0; i < n; ++i)
+        {
+            float tickX = (static_cast<float>(i) / static_cast<float>(n - 1)) * sliderW;
+            canvas.setColor(holy::dimColor(holy::colors::textMuted, d));
+            canvas.fill(static_cast<int>(tickX), static_cast<int>(trackY - 2.0f), 1, 5);
+        }
     }
 
     // Thumb
@@ -71,35 +122,61 @@ void HolySlider::draw(visage::Canvas& canvas)
 
 void HolySlider::mouseDown(const visage::MouseEvent& e)
 {
-    if (!attachment_ || dimmed_)
+    auto* att = activeAttachment();
+    if (!att || dimmed_)
         return;
 
     dragging_ = true;
-    attachment_->beginGesture();
+    att->beginGesture();
 
-    // e.position = frame-local coordinates
     float sliderW = getSliderWidth();
-    dragCurrentNorm_ = std::clamp(e.position.x / sliderW, 0.0f, 1.0f);
-    attachment_->setNormalisedValue(dragCurrentNorm_);
+    float rawNorm = std::clamp(e.position.x / sliderW, 0.0f, 1.0f);
+
+    // Snap to nearest division when synced
+    if (synced_ && !syncLabels_.empty())
+    {
+        int n = static_cast<int>(syncLabels_.size());
+        int idx = static_cast<int>(std::round(rawNorm * static_cast<float>(n - 1)));
+        idx = std::clamp(idx, 0, n - 1);
+        rawNorm = static_cast<float>(idx) / static_cast<float>(n - 1);
+    }
+
+    dragCurrentNorm_ = rawNorm;
+    att->setNormalisedValue(dragCurrentNorm_);
     redraw();
 }
 
 void HolySlider::mouseDrag(const visage::MouseEvent& e)
 {
-    if (!dragging_ || !attachment_)
+    auto* att = activeAttachment();
+    if (!dragging_ || !att)
         return;
 
-    // e.position = frame-local coordinates (absolute within this frame)
     float sliderW = getSliderWidth();
-    dragCurrentNorm_ = std::clamp(e.position.x / sliderW, 0.0f, 1.0f);
-    attachment_->setNormalisedValue(dragCurrentNorm_);
+    float rawNorm = std::clamp(e.position.x / sliderW, 0.0f, 1.0f);
+
+    // Snap to nearest division when synced
+    if (synced_ && !syncLabels_.empty())
+    {
+        int n = static_cast<int>(syncLabels_.size());
+        int idx = static_cast<int>(std::round(rawNorm * static_cast<float>(n - 1)));
+        idx = std::clamp(idx, 0, n - 1);
+        rawNorm = static_cast<float>(idx) / static_cast<float>(n - 1);
+    }
+
+    dragCurrentNorm_ = rawNorm;
+    att->setNormalisedValue(dragCurrentNorm_);
     redraw();
 }
 
 void HolySlider::mouseUp(const visage::MouseEvent&)
 {
-    if (dragging_ && attachment_)
-        attachment_->endGesture();
+    if (dragging_)
+    {
+        auto* att = activeAttachment();
+        if (att)
+            att->endGesture();
+    }
     dragging_ = false;
     redraw();
 }

@@ -17,6 +17,7 @@ public:
     void mouseDown(const visage::MouseEvent& e) override;
 
     void setLabel(const std::string& label) { label_ = label; redraw(); }
+    void setLabelColor(unsigned int color) { labelColor_ = color; }
     bool isOn() const;
     void setDimmed(bool d) { if (dimmed_ != d) { dimmed_ = d; redraw(); } }
     bool isDimmed() const { return dimmed_; }
@@ -27,6 +28,7 @@ public:
 private:
     std::unique_ptr<VisageParamAttachment> attachment_;
     std::string label_;
+    unsigned int labelColor_ = 0; // 0 = use default
     bool manualState_ = false;
     bool dimmed_ = false;
 

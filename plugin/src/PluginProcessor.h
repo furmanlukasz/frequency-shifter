@@ -185,20 +185,20 @@ private:
     // LFO tempo sync division multipliers (in beats, i.e. quarter notes)
     static constexpr int NUM_LFO_DIVISIONS = 14;
     static constexpr float LFO_DIVISION_BEATS[NUM_LFO_DIVISIONS] = {
-        16.0f,   // 4/1 (4 bars)
-        8.0f,    // 2/1 (2 bars)
-        4.0f,    // 1/1 (1 bar)
-        2.0f,    // 1/2
-        1.0f,    // 1/4
-        0.5f,    // 1/8
-        0.25f,   // 1/16
         0.125f,  // 1/32
-        1.333f,  // 1/4T (triplet)
-        0.667f,  // 1/8T
-        0.333f,  // 1/16T
-        1.5f,    // 1/4. (dotted)
-        0.75f,   // 1/8.
-        0.375f   // 1/16.
+        0.25f,   // 1/16
+        0.375f,  // 1/16 D (dotted)
+        0.5f,    // 1/8
+        0.75f,   // 1/8 D (dotted)
+        1.0f,    // 1/4
+        1.5f,    // 1/4 D (dotted)
+        2.0f,    // 1/2
+        4.0f,    // 1/1 (1 bar)
+        8.0f,    // 2/1 (2 bars)
+        12.0f,   // 3/1 (3 bars)
+        16.0f,   // 4/1 (4 bars)
+        32.0f,   // 8/1 (8 bars)
+        64.0f    // 16/1 (16 bars)
     };
 
     // LFO phase (0-1)
@@ -367,24 +367,22 @@ private:
     std::array<float, 5> classicOutputLpfCoeffs{};
 
     // Tempo sync division multipliers (relative to quarter note)
-    static constexpr int NUM_TEMPO_DIVISIONS = 16;
+    static constexpr int NUM_TEMPO_DIVISIONS = 14;
     static constexpr float TEMPO_DIVISION_MULTIPLIERS[NUM_TEMPO_DIVISIONS] = {
         0.125f,   // 1/32
-        0.1667f,  // 1/16T
         0.25f,    // 1/16
-        0.375f,   // 1/16D
-        0.3333f,  // 1/8T
+        0.375f,   // 1/16 D
         0.5f,     // 1/8
-        0.75f,    // 1/8D
-        0.6667f,  // 1/4T
+        0.75f,    // 1/8 D
         1.0f,     // 1/4
-        1.5f,     // 1/4D
-        1.3333f,  // 1/2T
+        1.5f,     // 1/4 D
         2.0f,     // 1/2
-        3.0f,     // 1/2D
         4.0f,     // 1/1
         8.0f,     // 2/1
-        16.0f     // 4/1
+        12.0f,    // 3/1
+        16.0f,    // 4/1
+        32.0f,    // 8/1
+        64.0f     // 16/1
     };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FrequencyShifterProcessor)

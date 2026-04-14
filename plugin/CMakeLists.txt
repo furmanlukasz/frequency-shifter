@@ -60,6 +60,8 @@ set(PLUGIN_SOURCES
     src/ui/controls/HolyComboBox.h
     src/ui/controls/HolyPianoKeyboard.cpp
     src/ui/controls/HolyPianoKeyboard.h
+    src/ui/controls/HolySegmentedControl.cpp
+    src/ui/controls/HolySegmentedControl.h
     # DSP modules
     src/dsp/STFT.cpp
     src/dsp/STFT.h
@@ -84,7 +86,7 @@ juce_add_plugin(FrequencyShifter
     FORMATS AU VST3 AUv3 Standalone
 
     # Plugin name
-    PRODUCT_NAME "Holy Shifter v111"
+    PRODUCT_NAME "Holy Shifter v114"
 
     # Plugin characteristics
     IS_SYNTH FALSE

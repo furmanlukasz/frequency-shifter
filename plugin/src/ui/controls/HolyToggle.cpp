@@ -38,11 +38,13 @@ void HolyToggle::draw(visage::Canvas& canvas)
     canvas.setColor(holy::dimColor(on ? holy::colors::accent : holy::colors::textMuted, d));
     canvas.circle(dotX, dotY, dotSize);
 
-    // Label
+    // Label (Figma: 9px Inter Medium, tracking varies)
     if (!label_.empty())
     {
-        auto font = holy::makeFont(11.0f);
-        canvas.setColor(holy::dimColor(on ? holy::colors::text : holy::colors::textSec, d));
+        auto font = holy::makeFont(10.0f);
+        unsigned int color = labelColor_ != 0 ? labelColor_
+            : (on ? holy::colors::text : holy::colors::textSec);
+        canvas.setColor(holy::dimColor(color, d));
         canvas.text(label_.c_str(), font, visage::Font::kLeft,
                     static_cast<int>(pillW + 6), 0,
                     width() - static_cast<int>(pillW + 6), static_cast<int>(h));

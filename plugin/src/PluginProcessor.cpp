@@ -257,14 +257,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
 
     // LFO tempo division (when synced)
     juce::StringArray lfoDivisionNames{
-        "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32",
-        "1/4T", "1/8T", "1/16T", "1/4.", "1/8.", "1/16."
+        "1/32", "1/16", "1/16 D", "1/8", "1/8 D", "1/4", "1/4 D",
+        "1/2", "1/1", "2/1", "3/1", "4/1", "8/1", "16/1"
     };
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ PARAM_LFO_DIVISION, 1 },
         "LFO Division",
         lfoDivisionNames,
-        4));  // Default to 1/4
+        5));  // Default to 1/4
 
     // LFO shape
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -322,7 +322,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         juce::ParameterID{ PARAM_DLY_LFO_DIVISION, 1 },
         "Delay LFO Division",
         lfoDivisionNames,
-        4));  // Default to 1/4
+        5));  // Default to 1/4
 
     // Delay LFO shape
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
@@ -415,17 +415,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
 
     // Delay tempo division (when synced)
     juce::StringArray divisionNames{
-        "1/32", "1/16T", "1/16", "1/16D",
-        "1/8T", "1/8", "1/8D",
-        "1/4T", "1/4", "1/4D",
-        "1/2T", "1/2", "1/2D",
-        "1/1", "2/1", "4/1"
+        "1/32", "1/16", "1/16 D", "1/8", "1/8 D", "1/4", "1/4 D",
+        "1/2", "1/1", "2/1", "3/1", "4/1", "8/1", "16/1"
     };
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ PARAM_DELAY_DIVISION, 1 },
         "Division",
         divisionNames,
-        8));  // Default to 1/4
+        5));  // Default to 1/4
 
     // Delay frequency slope (-100 to +100%)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
