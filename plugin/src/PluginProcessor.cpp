@@ -19,7 +19,6 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_ROOT_NOTE, this);
     parameters.addParameterListener(PARAM_SCALE_TYPE, this);
     parameters.addParameterListener(PARAM_DRY_WET, this);
-    parameters.addParameterListener(PARAM_PHASE_VOCODER, this);
     parameters.addParameterListener(PARAM_SMEAR, this);
     parameters.addParameterListener(PARAM_LFO_DEPTH, this);
     parameters.addParameterListener(PARAM_LFO_DEPTH_MODE, this);
@@ -27,11 +26,13 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_LFO_SYNC, this);
     parameters.addParameterListener(PARAM_LFO_DIVISION, this);
     parameters.addParameterListener(PARAM_LFO_SHAPE, this);
+    parameters.addParameterListener(PARAM_LFO_ENABLED, this);
     parameters.addParameterListener(PARAM_DLY_LFO_DEPTH, this);
     parameters.addParameterListener(PARAM_DLY_LFO_RATE, this);
     parameters.addParameterListener(PARAM_DLY_LFO_SYNC, this);
     parameters.addParameterListener(PARAM_DLY_LFO_DIVISION, this);
     parameters.addParameterListener(PARAM_DLY_LFO_SHAPE, this);
+    parameters.addParameterListener(PARAM_DLY_LFO_ENABLED, this);
     parameters.addParameterListener(PARAM_MASK_ENABLED, this);
     parameters.addParameterListener(PARAM_MASK_MODE, this);
     parameters.addParameterListener(PARAM_MASK_LOW_FREQ, this);
@@ -44,7 +45,6 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_DELAY_SLOPE, this);
     parameters.addParameterListener(PARAM_DELAY_FEEDBACK, this);
     parameters.addParameterListener(PARAM_DELAY_DAMPING, this);
-    parameters.addParameterListener(PARAM_DELAY_DIFFUSE, this);
     parameters.addParameterListener(PARAM_DELAY_GAIN, this);
     parameters.addParameterListener(PARAM_PRESERVE, this);
     parameters.addParameterListener(PARAM_TRANSIENTS, this);
@@ -71,7 +71,6 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_ROOT_NOTE, this);
     parameters.removeParameterListener(PARAM_SCALE_TYPE, this);
     parameters.removeParameterListener(PARAM_DRY_WET, this);
-    parameters.removeParameterListener(PARAM_PHASE_VOCODER, this);
     parameters.removeParameterListener(PARAM_SMEAR, this);
     parameters.removeParameterListener(PARAM_LFO_DEPTH, this);
     parameters.removeParameterListener(PARAM_LFO_DEPTH_MODE, this);
@@ -79,11 +78,13 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_LFO_SYNC, this);
     parameters.removeParameterListener(PARAM_LFO_DIVISION, this);
     parameters.removeParameterListener(PARAM_LFO_SHAPE, this);
+    parameters.removeParameterListener(PARAM_LFO_ENABLED, this);
     parameters.removeParameterListener(PARAM_DLY_LFO_DEPTH, this);
     parameters.removeParameterListener(PARAM_DLY_LFO_RATE, this);
     parameters.removeParameterListener(PARAM_DLY_LFO_SYNC, this);
     parameters.removeParameterListener(PARAM_DLY_LFO_DIVISION, this);
     parameters.removeParameterListener(PARAM_DLY_LFO_SHAPE, this);
+    parameters.removeParameterListener(PARAM_DLY_LFO_ENABLED, this);
     parameters.removeParameterListener(PARAM_MASK_ENABLED, this);
     parameters.removeParameterListener(PARAM_MASK_MODE, this);
     parameters.removeParameterListener(PARAM_MASK_LOW_FREQ, this);
@@ -96,7 +97,6 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_DELAY_SLOPE, this);
     parameters.removeParameterListener(PARAM_DELAY_FEEDBACK, this);
     parameters.removeParameterListener(PARAM_DELAY_DAMPING, this);
-    parameters.removeParameterListener(PARAM_DELAY_DIFFUSE, this);
     parameters.removeParameterListener(PARAM_DELAY_GAIN, this);
     parameters.removeParameterListener(PARAM_PRESERVE, this);
     parameters.removeParameterListener(PARAM_TRANSIENTS, this);
@@ -138,7 +138,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         juce::ParameterID{ PARAM_QUANTIZE_STRENGTH, 1 },
         "Quantize",
         quantizeRange,
-        0.0f,
+        0.0f,  // R1: slider rests at 0; consumer remaps to a 0.2 floor (see processBlock).
         juce::AudioParameterFloatAttributes().withLabel("%")));
 
     // Root note (12 pitch classes only - octave is irrelevant for scale quantization)
@@ -182,12 +182,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
         100.0f,
         juce::AudioParameterFloatAttributes().withLabel("%")));
-
-    // Phase vocoder toggle
-    params.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{ PARAM_PHASE_VOCODER, 1 },
-        "Enhanced Mode",
-        true));
 
     // SMEAR control (5-123ms) - replaces quality mode dropdown
     // Crossfades between FFT sizes for continuous latency/quality control
@@ -234,8 +228,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         juce::StringArray{ "Hz", "Deg" },
         0));  // Default to Hz
 
-    // LFO rate (0.01-20 Hz, log scale)
-    auto lfoRateRange = juce::NormalisableRange<float>(0.01f, 20.0f,
+    // LFO rate (0.01-60 Hz, log scale). Upper end intentionally well above classic
+    // chorus rates (~0.5-8 Hz) so chorus sits comfortably in the middle of the
+    // slider's log travel, with flutter / fast-modulation territory above.
+    auto lfoRateRange = juce::NormalisableRange<float>(0.01f, 60.0f,
         [](float start, float end, float normalised) {
             return start * std::pow(end / start, normalised);
         },
@@ -272,6 +268,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         "LFO Shape",
         juce::StringArray{ "Sine", "Triangle", "Saw", "Inv Saw", "Random" },
         0));  // Default to Sine
+
+    // LFO on/off (R3) — default off, matching the delay's enable
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ PARAM_LFO_ENABLED, 1 },
+        "LFO Enabled",
+        false));
 
     // === Delay Time LFO Parameters ===
 
@@ -330,6 +332,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         "Delay LFO Shape",
         juce::StringArray{ "Sine", "Triangle", "Saw", "Inv Saw", "Random" },
         0));  // Default to Sine
+
+    // Delay LFO on/off (R3) — default off
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ PARAM_DLY_LFO_ENABLED, 1 },
+        "Delay LFO Enabled",
+        false));
 
     // === Spectral Mask Parameters ===
 
@@ -448,14 +456,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         30.0f,
         juce::AudioParameterFloatAttributes().withLabel("%")));
 
-    // Delay diffuse (0-100%) - spectral delay wet/dry (smear effect)
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{ PARAM_DELAY_DIFFUSE, 1 },
-        "Diffuse",
-        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
-        50.0f,
-        juce::AudioParameterFloatAttributes().withLabel("%")));
-
     // Delay gain (-12 to +24 dB)
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ PARAM_DELAY_GAIN, 1 },
@@ -549,10 +549,6 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     {
         dryWetMix.store(newValue / 100.0f);
     }
-    else if (parameterID == PARAM_PHASE_VOCODER)
-    {
-        usePhaseVocoder.store(newValue > 0.5f);
-    }
     else if (parameterID == PARAM_SMEAR)
     {
         float oldSmear = smearMs.load();
@@ -586,6 +582,10 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     {
         lfoShape.store(static_cast<int>(newValue));
     }
+    else if (parameterID == PARAM_LFO_ENABLED)
+    {
+        lfoEnabled.store(newValue > 0.5f);
+    }
     else if (parameterID == PARAM_DLY_LFO_DEPTH)
     {
         dlyLfoDepth.store(newValue);
@@ -605,6 +605,10 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     else if (parameterID == PARAM_DLY_LFO_SHAPE)
     {
         dlyLfoShape.store(static_cast<int>(newValue));
+    }
+    else if (parameterID == PARAM_DLY_LFO_ENABLED)
+    {
+        dlyLfoEnabled.store(newValue > 0.5f);
     }
     else if (parameterID == PARAM_MASK_ENABLED)
     {
@@ -668,12 +672,6 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
     else if (parameterID == PARAM_DELAY_DAMPING)
     {
         delayDamping.store(newValue);
-        // Defer spectralDelay updates to audio thread for thread safety
-        delayNeedsUpdate.store(true);
-    }
-    else if (parameterID == PARAM_DELAY_DIFFUSE)
-    {
-        delayDiffuse.store(newValue);
         // Defer spectralDelay updates to audio thread for thread safety
         delayNeedsUpdate.store(true);
     }
@@ -747,6 +745,17 @@ void FrequencyShifterProcessor::prepareToPlay(double sampleRate, int samplesPerB
     float lfoDepthSmoothMs = 20.0f;
     lfoDepthSmoothCoeff = std::exp(-1.0f / (static_cast<float>(sampleRate) * lfoDepthSmoothMs / 1000.0f));
     smoothedLfoDepth = lfoDepth.load();
+
+    // Additional param smoothers — time constants tuned per parameter character.
+    auto makeSmoothCoeff = [sampleRate](float timeMs) {
+        return std::exp(-1.0f / (static_cast<float>(sampleRate) * timeMs / 1000.0f));
+    };
+    shiftHzSmoothCoeff          = makeSmoothCoeff(10.0f);
+    quantizeStrengthSmoothCoeff = makeSmoothCoeff(30.0f);
+    lfoRateSmoothCoeff          = makeSmoothCoeff(50.0f);
+    smoothedShiftHz             = shiftHz.load();
+    smoothedQuantizeStrength    = quantizeStrength.load();
+    smoothedLfoRate             = lfoRate.load();
 
     // Initialize with current quality mode
     reinitializeDsp();
@@ -834,10 +843,6 @@ void FrequencyShifterProcessor::reinitializeDsp()
             stftProcessors[ch][proc] = std::make_unique<fshift::STFT>(fftSize, hopSize);
             stftProcessors[ch][proc]->prepare(currentSampleRate);
 
-            phaseVocoders[ch][proc] = std::make_unique<fshift::PhaseVocoder>(fftSize, hopSize, currentSampleRate);
-
-            frequencyShifters[ch][proc] = std::make_unique<fshift::FrequencyShifter>(currentSampleRate, fftSize);
-
             // Initialize overlap-add buffers
             inputBuffers[ch][proc].resize(static_cast<size_t>(fftSize) * 2, 0.0f);
             outputBuffers[ch][proc].resize(static_cast<size_t>(fftSize) * 2, 0.0f);
@@ -860,7 +865,10 @@ void FrequencyShifterProcessor::reinitializeDsp()
     // Reset LFO phase and depth smoother
     lfoPhase = 0.0;
     lastRandomValue = 0.0f;
-    smoothedLfoDepth = lfoDepth.load();
+    smoothedLfoDepth          = lfoDepth.load();
+    smoothedShiftHz           = shiftHz.load();
+    smoothedQuantizeStrength  = quantizeStrength.load();
+    smoothedLfoRate           = lfoRate.load();
 
     // Prepare quantizer with primary FFT settings for phase continuity (Phase 2A.3)
     if (quantizer)
@@ -884,7 +892,6 @@ void FrequencyShifterProcessor::reinitializeDsp()
             spectralDelays[ch][proc].setFrequencySlope(delaySlope.load());
             spectralDelays[ch][proc].setFeedback(0.0f);  // Disable spectral delay internal feedback
             spectralDelays[ch][proc].setDamping(delayDamping.load());
-            spectralDelays[ch][proc].setMix(delayDiffuse.load());  // Spectral delay uses "mix" for diffuse amount
             spectralDelays[ch][proc].setGain(delayGain.load());
         }
 
@@ -892,6 +899,10 @@ void FrequencyShifterProcessor::reinitializeDsp()
         feedbackBuffers[static_cast<size_t>(ch)].resize(MAX_FEEDBACK_DELAY_SAMPLES, 0.0f);
         feedbackWritePos[static_cast<size_t>(ch)] = 0;
         feedbackFilterState[static_cast<size_t>(ch)] = 0.0f;
+
+        // Feedback-loop source overlap-add buffer — proc-0 sized so its positions track
+        // outputBuffers[ch][0] (read with the same outputReadPos index).
+        feedbackSourceBuffers[static_cast<size_t>(ch)].assign(static_cast<size_t>(currentFftSizes[0]) * 2, 0.0f);
 
         // Initialize Hilbert shifter for Classic mode
         hilbertShifters[static_cast<size_t>(ch)].prepare(currentSampleRate);
@@ -1041,6 +1052,7 @@ void FrequencyShifterProcessor::reinitializeDsp()
             classicDcBlockState[static_cast<size_t>(ch)] = 0.0f;
             classicFbHpfState[static_cast<size_t>(ch)].fill(0.0f);
             classicFbLpfState[static_cast<size_t>(ch)].fill(0.0f);
+            classicFbDampState[static_cast<size_t>(ch)] = 0.0f;
             classicOutputLpfState[static_cast<size_t>(ch)].fill(0.0f);
         }
     }
@@ -1064,13 +1076,12 @@ void FrequencyShifterProcessor::releaseResources()
         for (int proc = 0; proc < NUM_PROCESSORS; ++proc)
         {
             stftProcessors[ch][proc].reset();
-            phaseVocoders[ch][proc].reset();
-            frequencyShifters[ch][proc].reset();
             inputBuffers[ch][proc].clear();
             outputBuffers[ch][proc].clear();
         }
         delayCompBuffers[ch].clear();
         dryDelayBuffers[ch].clear();
+        feedbackSourceBuffers[ch].clear();
     }
 }
 
@@ -1115,9 +1126,7 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     {
         float currentDelayTime = delayTime.load();
         float currentDelaySlope = delaySlope.load();
-        float currentDelayFeedback = delayFeedback.load();
         float currentDelayDamping = delayDamping.load();
-        float currentDelayDiffuse = delayDiffuse.load();
         float currentDelayGainDb = delayGain.load();
 
         for (auto& chDelays : spectralDelays)
@@ -1126,9 +1135,8 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
             {
                 delay.setDelayTime(currentDelayTime);
                 delay.setFrequencySlope(currentDelaySlope);
-                delay.setFeedback(currentDelayFeedback / 100.0f);
+                delay.setFeedback(0.0f);  // R2: per-bin feedback off; time-domain loop is the sole feedback path
                 delay.setDamping(currentDelayDamping);
-                delay.setMix(currentDelayDiffuse);
                 delay.setGain(currentDelayGainDb);
             }
         }
@@ -1145,27 +1153,35 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const int numChannels = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 
-    // Get current parameter values
-    const float baseShiftHz = shiftHz.load();
-    const float currentQuantizeStrength = quantizeStrength.load();
+    // Get current parameter values. Discontinuous-but-audible params are routed
+    // through block-rate one-pole smoothers (see prepareToPlay) so slider slams
+    // and host automation steps don't click.
+    auto smoothBlock = [numSamples](float& state, float target, float perSampleCoeff) {
+        float blockCoeff = std::pow(perSampleCoeff, static_cast<float>(numSamples));
+        state = target + blockCoeff * (state - target);
+        return state;
+    };
+
+    const float baseShiftHz = smoothBlock(smoothedShiftHz, shiftHz.load(), shiftHzSmoothCoeff);
+    const float rawQuantizeStrength = smoothBlock(
+        smoothedQuantizeStrength, quantizeStrength.load(), quantizeStrengthSmoothCoeff);
+    // R1: remap the slider's 0->100 travel onto internal 0.2->1.0 (slider 0 == old 0.2).
+    // The slider reads its position, not a literal %, and quant never drops below 0.2.
+    const float currentQuantizeStrength = 0.2f + 0.8f * rawQuantizeStrength;
     const float currentDryWet = dryWetMix.load();
-    const bool currentUsePhaseVocoder = usePhaseVocoder.load();
     const bool currentMaskEnabled = maskEnabled.load();
     const bool currentWarmEnabled = warmEnabled.load();
 
-    // LFO modulation parameters (smooth depth to prevent clicks on slider jumps)
-    // Adjust smoothing coefficient for block-rate application:
-    // The per-sample coefficient is raised to numSamples to get the equivalent
-    // block-rate coefficient, so convergence speed is independent of block size.
-    const float targetLfoDepth = lfoDepth.load();
-    const float blockCoeff = std::pow(lfoDepthSmoothCoeff, static_cast<float>(numSamples));
-    smoothedLfoDepth = targetLfoDepth + blockCoeff * (smoothedLfoDepth - targetLfoDepth);
-    const float currentLfoDepth = smoothedLfoDepth;
+    // LFO modulation parameters (smooth depth to prevent clicks on slider jumps).
+    const float currentLfoDepth = smoothBlock(
+        smoothedLfoDepth, lfoDepth.load(), lfoDepthSmoothCoeff);
     const int currentLfoDepthMode = lfoDepthMode.load();
-    const float currentLfoRate = lfoRate.load();
+    const float currentLfoRate = smoothBlock(
+        smoothedLfoRate, lfoRate.load(), lfoRateSmoothCoeff);
     const bool currentLfoSync = lfoSync.load();
     const int currentLfoDivision = lfoDivision.load();
     const int currentLfoShape = lfoShape.load();
+    const bool currentLfoEnabled = lfoEnabled.load();
     const bool currentDelayEnabled = delayEnabled.load();
     const bool currentDelaySync = delaySync.load();
     const int currentDelayDivision = delayDivision.load();
@@ -1201,7 +1217,7 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
     // === LFO Calculation ===
     float lfoModulationHz = 0.0f;
-    if (currentLfoDepth > 0.01f)
+    if (currentLfoEnabled && currentLfoDepth > 0.01f)
     {
         // Calculate LFO frequency
         double lfoFreqHz;
@@ -1306,8 +1322,9 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
     const bool currentDlyLfoSync = dlyLfoSync.load();
     const int currentDlyLfoDivision = dlyLfoDivision.load();
     const int currentDlyLfoShape = dlyLfoShape.load();
+    const bool currentDlyLfoEnabled = dlyLfoEnabled.load();
 
-    if (currentDlyLfoDepth > 0.01f)
+    if (currentDlyLfoEnabled && currentDlyLfoDepth > 0.01f)
     {
         // Calculate LFO frequency
         double dlyLfoFreqHz;
@@ -1531,6 +1548,15 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                         toBuffer = filtered;
                     }
 
+                    // 3. R5: Damping — one-pole LPF whose cutoff tracks the Damping knob
+                    // (feedbackFilterCoeff: 0% -> ~12kHz, 100% -> ~1kHz). Gives the Classic
+                    // feedback the same tonal control the Spectral path already has.
+                    {
+                        float& dampState = classicFbDampState[static_cast<size_t>(channel)];
+                        dampState = toBuffer + feedbackFilterCoeff * (dampState - toBuffer);
+                        toBuffer = dampState;
+                    }
+
                     // Write to feedback buffer (no write-side soft clip — read-side clip is sufficient)
                     fbBuffer[static_cast<size_t>(feedbackWritePos[static_cast<size_t>(channel)])] = toBuffer;
                     feedbackWritePos[static_cast<size_t>(channel)] = (feedbackWritePos[static_cast<size_t>(channel)] + 1) % fbBufSize;
@@ -1588,6 +1614,10 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
             {
                 // Start with dry input sample
                 float inputSample = drySignal[static_cast<size_t>(i)];
+
+                // Feedback is recirculated only on proc 0 when Delay is enabled. Gates every
+                // change below, so the no-delay path is byte-for-byte identical to before.
+                const bool feedbackActive = (currentDelayEnabled && proc == 0);
 
                 // Add feedback from time-domain buffer (only once per sample, on proc 0)
                 // This routes feedback BEFORE the shifter for cascading pitch shifts
@@ -1668,6 +1698,13 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                     // Perform STFT
                     auto [magnitude, phase] = stftProcessors[channel][proc]->forward(inputFrame);
 
+                    // Feedback-loop source spectrum (filled only when feedback is active):
+                    // the shifted/quantized magnitude BEFORE spectral-envelope preservation,
+                    // paired with the post-quantize pre-mask phase. Recirculated below in place
+                    // of the envelope-boosted audible output.
+                    std::vector<float> preEnvMagnitude;
+                    std::vector<float> fbPhase;
+
                     if (!bypassProcessing)
                     {
                         // Save dry spectrum for mask blending
@@ -1690,25 +1727,24 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                             envelopePtr = &inputEnvelope;
                         }
 
-                        // Apply phase vocoder if enabled
-                        if (currentUsePhaseVocoder && std::abs(currentShiftHz) > 0.01f)
+                        // Spectral mode = "in-key frequency shifter": shift and scale-snap happen
+                        // together inside the quantizer. shiftHz stays continuous (no bin rounding)
+                        // and the two-nearest-scale-tone crossfade glides smoothly as the knob
+                        // moves. Phase coherence comes from the quantizer's per-MIDI-note phase
+                        // accumulators.
+                        if (quantizer &&
+                            (currentQuantizeStrength > 0.01f || std::abs(currentShiftHz) > 0.01f))
                         {
-                            phase = phaseVocoders[channel][proc]->process(magnitude, phase, currentShiftHz);
-                        }
-
-                        // Apply frequency shifting
-                        if (std::abs(currentShiftHz) > 0.01f)
-                        {
-                            std::tie(magnitude, phase) = frequencyShifters[channel][proc]->shift(magnitude, phase, currentShiftHz);
-                        }
-
-                        // Apply musical quantization
-                        // Note: LFO now modulates base shift Hz instead of per-bin drift
-                        if (currentQuantizeStrength > 0.01f && quantizer)
-                        {
-                            // Pass the pre-shift envelope for accurate timbre preservation
                             std::tie(magnitude, phase) = quantizer->quantizeSpectrum(
-                                magnitude, phase, currentSampleRate, fftSize, currentQuantizeStrength, nullptr, envelopePtr);
+                                magnitude, phase, currentSampleRate, fftSize,
+                                currentShiftHz, currentQuantizeStrength,
+                                nullptr, envelopePtr,
+                                feedbackActive ? &preEnvMagnitude : nullptr);
+
+                            // Snapshot the post-quantize, pre-mask phase to pair with the
+                            // pre-envelope magnitude for the feedback-loop IFFT below.
+                            if (feedbackActive)
+                                fbPhase = phase;
                         }
 
                         // Apply spectral mask (blend wet/dry per frequency bin)
@@ -1737,11 +1773,39 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                         int pos = (writePos + j) % static_cast<int>(outputBuf.size());
                         outputBuf[static_cast<size_t>(pos)] += outputFrame[static_cast<size_t>(j)];
                     }
+
+                    // Feedback-loop source: IFFT the pre-envelope-preservation spectrum into its
+                    // own overlap-add buffer (same size/positions as outputBuf). When the quantizer
+                    // didn't run this frame (transient bypass, or no shift/quantize), preEnvMagnitude
+                    // is empty and the audible frame — which carries no envelope gain in that case —
+                    // is reused, exactly preserving the original feedback behaviour.
+                    if (feedbackActive)
+                    {
+                        auto& fbSrcBuf = feedbackSourceBuffers[static_cast<size_t>(channel)];
+                        auto fbFrame = preEnvMagnitude.empty()
+                            ? outputFrame
+                            : stftProcessors[channel][proc]->inverse(preEnvMagnitude, fbPhase);
+                        for (int j = 0; j < fftSize; ++j)
+                        {
+                            int pos = (writePos + j) % static_cast<int>(fbSrcBuf.size());
+                            fbSrcBuf[static_cast<size_t>(pos)] += fbFrame[static_cast<size_t>(j)];
+                        }
+                    }
                 }
 
                 // Read from output buffer
                 float outputSample = outputBuf[static_cast<size_t>(outReadPos)];
                 outputBuf[static_cast<size_t>(outReadPos)] = 0.0f;  // Clear for next overlap-add
+
+                // Read the matching feedback-loop source sample (same position) before advancing
+                float feedbackSourceSample = 0.0f;
+                if (feedbackActive)
+                {
+                    auto& fbSrcBuf = feedbackSourceBuffers[static_cast<size_t>(channel)];
+                    feedbackSourceSample = fbSrcBuf[static_cast<size_t>(outReadPos)];
+                    fbSrcBuf[static_cast<size_t>(outReadPos)] = 0.0f;  // Clear for next overlap-add
+                }
+
                 outReadPos = (outReadPos + 1) % static_cast<int>(outputBuf.size());
 
                 // Write processed output to time-domain feedback buffer (only once, on proc 0)
@@ -1752,11 +1816,22 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                     int fbBufSize = static_cast<int>(fbBuffer.size());
 
                     // === Feedback signal chain: HPF (150Hz) → LPF (DAMP) → Write ===
+                    //
+                    // The recirculated signal is feedbackSourceSample — the shifted/quantized
+                    // output BEFORE in-loop spectral-envelope preservation (applySpectralEnvelopeFast
+                    // in the quantizer). Recirculating the envelope-boosted audible output instead
+                    // made the loop regenerative at high shift + Envelope (the v0.1.7 runaway):
+                    // each pass re-applied the per-band envelope make-up gain (up to +36 dB/band).
+                    // Tapping pre-envelope keeps the loop gain governed only by the Feedback knob
+                    // and the HPF/damping filters — the stable Envelope-off regime — while the
+                    // audible path still gets full envelope preservation. (Replaces the v0.1.7
+                    // 1/lastPreserveGain compensation, which used the post-loop amplitude gain —
+                    // the wrong quantity — and could not cancel the per-band spectral loop gain.)
 
                     // Step 1: Apply highpass filter (150Hz) to prevent low frequency buildup
                     // Biquad Direct Form I: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
                     auto& hpfState = feedbackHpfState[static_cast<size_t>(channel)];
-                    float x0 = outputSample;
+                    float x0 = feedbackSourceSample;
                     float x1 = hpfState[0];
                     float x2 = hpfState[1];
                     float y1 = hpfState[2];
@@ -1787,9 +1862,9 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                     if (channel == 0 && ++fbWriteDebugCounter % static_cast<int>(currentSampleRate) == 0)
                     {
                         DBG("--- Feedback Write ---");
-                        DBG("Output sample (raw): " + juce::String(outputSample, 6));
+                        DBG("Feedback source (pre-envelope): " + juce::String(feedbackSourceSample, 6));
                         DBG("After HPF: " + juce::String(hpfOutput, 6));
-                        DBG("After LPF (written to buffer): " + juce::String(filteredSample, 6));
+                        DBG("After LPF (written to buffer): " + juce::String(lpfState, 6));
                     }
                 }
 
@@ -2097,6 +2172,7 @@ juce::AudioProcessorEditor* FrequencyShifterProcessor::createEditor()
 void FrequencyShifterProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
+    PresetManager::stampVersion(state);
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -2106,7 +2182,9 @@ void FrequencyShifterProcessor::setStateInformation(const void* data, int sizeIn
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
     if (xmlState != nullptr && xmlState->hasTagName(parameters.state.getType()))
     {
-        parameters.replaceState(juce::ValueTree::fromXml(*xmlState));
+        auto tree = juce::ValueTree::fromXml(*xmlState);
+        PresetManager::migrateState(tree, PresetManager::readVersion(*xmlState));
+        parameters.replaceState(tree);
     }
 }
 

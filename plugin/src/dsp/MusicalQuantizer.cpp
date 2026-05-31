@@ -343,13 +343,17 @@ void MusicalQuantizer::applySpectralEnvelopeFast(
     const std::vector<float>& postEnvelope,
     float preserveStrength) const
 {
-    // OPTIMIZED: Uses pre-computed bin-to-band lookup, no log() calls
+    // The PRESERVE slider exponentiates the per-band envelope correction:
+    //   0%    -> exponent 0.0 -> bandRatio = 1.0          (no envelope correction)
+    //   ~33%  -> exponent 1.0 -> bandRatio = rawRatio     (exact envelope match)
+    //   100%  -> exponent 3.0 -> bandRatio = rawRatio^3   (triple-dB over-emphasis;
+    //                                                      formants/transients get exaggerated)
+    // The raw ratio (original / post) is clamped to ±12 dB before the pow, so the
+    // worst-case band correction at slider=100% is bounded at ±36 dB.
+    const float exponent = preserveStrength * 3.0f;
 
-    float effectiveStrength = std::pow(preserveStrength, 0.7f);
-
-    // Simpler gain limits for stability
-    constexpr float minRatio = 0.25f;  // -12dB
-    constexpr float maxRatio = 4.0f;   // +12dB
+    constexpr float minRatio = 0.25f;  // raw cap -12dB
+    constexpr float maxRatio = 4.0f;   // raw cap +12dB
 
     int numBins = static_cast<int>(magnitude.size());
 
@@ -363,9 +367,8 @@ void MusicalQuantizer::applySpectralEnvelopeFast(
         if (postVal < ENVELOPE_FLOOR) postVal = ENVELOPE_FLOOR;
         if (originalVal < ENVELOPE_FLOOR) originalVal = ENVELOPE_FLOOR;
 
-        float ratio = originalVal / postVal;
-        ratio = std::clamp(ratio, minRatio, maxRatio);
-        bandRatios[band] = 1.0f + effectiveStrength * (ratio - 1.0f);
+        float rawRatio = std::clamp(originalVal / postVal, minRatio, maxRatio);
+        bandRatios[band] = std::pow(rawRatio, exponent);
     }
 
     // Apply ratios using lookup table (single loop, no nested search)
@@ -439,20 +442,14 @@ void MusicalQuantizer::applySpectralEnvelope(
     int fftSize,
     float preserveStrength) const
 {
-    // Phase 2B+ Enhanced: More extreme correction at high settings
+    // See applySpectralEnvelopeFast for the design rationale — same exponent-based
+    // over-emphasis curve, here on the log-search fallback path.
     if (preserveStrength <= 0.0f)
         return;
 
-    // Non-linear scaling: make top end more aggressive
-    // pow(x, 0.7) gives gentler curve with more effect at high settings
-    float effectiveStrength = std::pow(preserveStrength, 0.7f);
-
-    // Dynamic clamp based on preserve setting:
-    // At 50%: ±18dB (ratio 0.125 to 8)
-    // At 100%: ±48dB (ratio 0.004 to 256) - nearly unclamped
-    float clampDb = 18.0f + (effectiveStrength * 30.0f);  // 18 to 48 dB
-    float minRatio = std::pow(10.0f, -clampDb / 20.0f);
-    float maxRatio = std::pow(10.0f, clampDb / 20.0f);
+    const float exponent = preserveStrength * 3.0f;
+    constexpr float minRatio = 0.25f;
+    constexpr float maxRatio = 4.0f;
 
     int numBins = static_cast<int>(magnitude.size());
     float binResolution = static_cast<float>(sampleRate) / static_cast<float>(fftSize);
@@ -496,17 +493,8 @@ void MusicalQuantizer::applySpectralEnvelope(
         if (originalVal < ENVELOPE_FLOOR)
             originalVal = ENVELOPE_FLOOR;
 
-        float ratio = originalVal / postVal;
-
-        // Apply dynamic clamp
-        ratio = std::clamp(ratio, minRatio, maxRatio);
-
-        // Apply ratio scaled by effectiveStrength (non-linear)
-        // At 0%: no correction (ratio of 1.0)
-        // At 100%: full correction with expanded dynamic range
-        float blendedRatio = 1.0f + effectiveStrength * (ratio - 1.0f);
-
-        magnitude[static_cast<size_t>(k)] *= blendedRatio;
+        float rawRatio = std::clamp(originalVal / postVal, minRatio, maxRatio);
+        magnitude[static_cast<size_t>(k)] *= std::pow(rawRatio, exponent);
     }
 }
 
@@ -563,11 +551,14 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
     const std::vector<float>& phase,
     double sampleRate,
     int fftSize,
+    float shiftHz,
     float strength,
     const std::vector<float>* driftCents,
-    const std::vector<float>* preShiftEnvelope)
+    const std::vector<float>* preShiftEnvelope,
+    std::vector<float>* preEnvelopeMagnitudeOut)
 {
-    if (strength <= 0.0f)
+    // Short-circuit only when both shift and snap are no-ops; either alone still needs the loop.
+    if (strength <= 0.0f && std::abs(shiftHz) < 0.001f)
         return { magnitude, phase };
 
     strength = std::clamp(strength, 0.0f, 1.0f);
@@ -646,17 +637,26 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
         if (binFreq <= 0.0f)
             continue;
 
+        // Continuous frequency shift applied in the same pass as the scale snap. shiftHz is
+        // real-valued and not rounded to a bin, so the two-nearest scale-tone weighting
+        // (lowerWeight/upperWeight) crossfades smoothly as the Shift knob moves through scale
+        // boundaries — the whole point of "in-key" Spectral mode.
+        float srcFreq = binFreq + shiftHz;
+        if (srcFreq <= 0.0f)
+            continue;  // shift pushed this bin below DC — discard
+
         float sourceMag = magnitude[static_cast<size_t>(k)];
         float sourcePhase = phase[static_cast<size_t>(k)];
 
-        // Get the two nearest scale frequencies and their weights
+        // Two nearest scale freqs are based on the SHIFTED frequency, not the bin frequency.
         float lowerFreq, upperFreq, lowerWeight, upperWeight;
-        findTwoNearestScaleFrequencies(binFreq, lowerFreq, upperFreq, lowerWeight, upperWeight);
+        findTwoNearestScaleFrequencies(srcFreq, lowerFreq, upperFreq, lowerWeight, upperWeight);
 
-        // Interpolate based on effectiveStrength (blend between original and quantized)
-        // This respects transient detection which may reduce quantization during attacks
-        float lowerTargetFreq = (1.0f - effectiveStrength) * binFreq + effectiveStrength * lowerFreq;
-        float upperTargetFreq = (1.0f - effectiveStrength) * binFreq + effectiveStrength * upperFreq;
+        // Blend between unsnapped shifted freq and snapped freq. At strength=0 you get a pure
+        // continuous shift (no quantization); at strength=1, full scale snap. Transient
+        // detection reduces effectiveStrength during attacks.
+        float lowerTargetFreq = (1.0f - effectiveStrength) * srcFreq + effectiveStrength * lowerFreq;
+        float upperTargetFreq = (1.0f - effectiveStrength) * srcFreq + effectiveStrength * upperFreq;
 
         // Apply drift if provided (to both targets)
         if (driftCents != nullptr && static_cast<size_t>(k) < driftCents->size())
@@ -730,6 +730,15 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
                 strongestContributorPhase[static_cast<size_t>(upperBin)] = sourcePhase;
             }
         }
+        else if (upperWeight > 0.001f)
+        {
+            // lowerBin == upperBin: both targets rounded to the same bin (input frequency sits
+            // very close to a scale tone). Add the upper-weight contribution to the same bin so
+            // total source-bin energy is preserved (lowerWeight + upperWeight = 1). Tracking
+            // variables were already set by the lower block; phase is identical (same source
+            // bin), so no other updates are needed.
+            quantizedMagnitude[static_cast<size_t>(lowerBin)] += sourceMag * upperWeight;
+        }
     }
 
     // Phase 2A.1: Apply accumulation normalization
@@ -762,6 +771,14 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
             quantizedMagnitude[static_cast<size_t>(k)] *= scaleFactor;
         }
     }
+
+    // Hand back the energy-normalized magnitude BEFORE spectral-envelope preservation.
+    // This is the "shift+quantize only" spectrum, whose energy matches the input — the
+    // right thing to recirculate in a feedback loop. The per-band envelope make-up gain
+    // applied just below (up to +36 dB/band) must stay on the audible output only, or it
+    // compounds around the loop and runs away at high shift + Envelope.
+    if (preEnvelopeMagnitudeOut != nullptr)
+        *preEnvelopeMagnitudeOut = quantizedMagnitude;
 
     // Phase 2B+ OPTIMIZED: Apply spectral envelope preservation
     // Uses pre-computed lookup tables to avoid expensive log() calls

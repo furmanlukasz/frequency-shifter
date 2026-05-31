@@ -19,7 +19,7 @@ VISAGE_THEME_COLOR(HolyPanelGradBot,  0xFF101013);
 VISAGE_THEME_COLOR(HolyMixGradTop,    0xFF0F0F11);
 
 VISAGE_THEME_COLOR(HolyText,          0xFFE8E4DB);
-VISAGE_THEME_COLOR(HolyTextSec,       0xFF8A857D);
+VISAGE_THEME_COLOR(HolyTextSec,       0xFFB8B2A6);  // WCAG AA: ~9:1 on HolyBackground
 VISAGE_THEME_COLOR(HolyTextMuted,     0xFF3E3A34);
 
 VISAGE_THEME_COLOR(HolyAccent,        0xFFC9A96E);
@@ -71,7 +71,7 @@ namespace holy {
         static constexpr unsigned int panelBg     = 0xFF0D0D0F;
         static constexpr unsigned int panelBorder = 0xFF1C1C20;
         static constexpr unsigned int text        = 0xFFE8E4DB;
-        static constexpr unsigned int textSec     = 0xFF8A857D;
+        static constexpr unsigned int textSec     = 0xFFB8B2A6;  // WCAG AA: ~9:1 on background
         static constexpr unsigned int textMuted   = 0xFF3E3A34;
         static constexpr unsigned int accent      = 0xFFC9A96E;
         static constexpr unsigned int accentDim   = 0xFF6B5D3D;

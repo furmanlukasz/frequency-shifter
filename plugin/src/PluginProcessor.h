@@ -3,8 +3,6 @@
 #include <JuceHeader.h>
 #include "PresetManager.h"
 #include "dsp/STFT.h"
-#include "dsp/PhaseVocoder.h"
-#include "dsp/FrequencyShifter.h"
 #include "dsp/MusicalQuantizer.h"
 #include "dsp/SpectralMask.h"
 #include "dsp/SpectralDelay.h"
@@ -70,7 +68,6 @@ public:
     // Per-note scale selection (replaces rootNote + scaleType)
     static constexpr const char* PARAM_SCALE_NOTE_PREFIX = "scaleNote";  // scaleNote0..scaleNote11
     static constexpr const char* PARAM_DRY_WET = "dryWet";
-    static constexpr const char* PARAM_PHASE_VOCODER = "phaseVocoder";
     static constexpr const char* PARAM_SMEAR = "smear";  // 5-123ms continuous control
     static constexpr const char* PARAM_LOG_SCALE = "logScale";
 
@@ -81,6 +78,7 @@ public:
     static constexpr const char* PARAM_LFO_SYNC = "lfoSync";
     static constexpr const char* PARAM_LFO_DIVISION = "lfoDivision";
     static constexpr const char* PARAM_LFO_SHAPE = "lfoShape";
+    static constexpr const char* PARAM_LFO_ENABLED = "lfoEnabled";  // R3: LFO on/off
 
     // Delay Time LFO parameters (modulates delay time for dub/tape wobble effects)
     static constexpr const char* PARAM_DLY_LFO_DEPTH = "dlyLfoDepth";
@@ -88,6 +86,7 @@ public:
     static constexpr const char* PARAM_DLY_LFO_SYNC = "dlyLfoSync";
     static constexpr const char* PARAM_DLY_LFO_DIVISION = "dlyLfoDivision";
     static constexpr const char* PARAM_DLY_LFO_SHAPE = "dlyLfoShape";
+    static constexpr const char* PARAM_DLY_LFO_ENABLED = "dlyLfoEnabled";  // R3: delay LFO on/off
 
     static constexpr const char* PARAM_MASK_ENABLED = "maskEnabled";
     static constexpr const char* PARAM_MASK_MODE = "maskMode";
@@ -101,7 +100,6 @@ public:
     static constexpr const char* PARAM_DELAY_SLOPE = "delaySlope";
     static constexpr const char* PARAM_DELAY_FEEDBACK = "delayFeedback";
     static constexpr const char* PARAM_DELAY_DAMPING = "delayDamping";
-    static constexpr const char* PARAM_DELAY_DIFFUSE = "delayDiffuse";  // Spectral delay wet/dry (smear effect)
     static constexpr const char* PARAM_DELAY_GAIN = "delayGain";
 
     // Phase 2B: Envelope preservation and transient detection
@@ -155,8 +153,6 @@ private:
 
     // Arrays: [channel][processor_index]
     std::array<std::array<std::unique_ptr<fshift::STFT>, NUM_PROCESSORS>, MAX_CHANNELS> stftProcessors;
-    std::array<std::array<std::unique_ptr<fshift::PhaseVocoder>, NUM_PROCESSORS>, MAX_CHANNELS> phaseVocoders;
-    std::array<std::array<std::unique_ptr<fshift::FrequencyShifter>, NUM_PROCESSORS>, MAX_CHANNELS> frequencyShifters;
     std::unique_ptr<fshift::MusicalQuantizer> quantizer;
     fshift::SpectralMask spectralMask;
     std::array<std::array<fshift::SpectralDelay, NUM_PROCESSORS>, MAX_CHANNELS> spectralDelays;
@@ -168,7 +164,6 @@ private:
     std::atomic<float> shiftHz{ 0.0f };
     std::atomic<float> quantizeStrength{ 0.0f };
     std::atomic<float> dryWetMix{ 1.0f };
-    std::atomic<bool> usePhaseVocoder{ true };
     std::atomic<int> rootNote{ 60 };  // C4 (deprecated, backward compat)
     std::atomic<int> scaleType{ 0 };  // Major (deprecated, backward compat)
     std::array<std::atomic<bool>, 12> scaleNotes{};  // Per-note selection (C=0, B=11)
@@ -177,10 +172,11 @@ private:
     // LFO modulation state
     std::atomic<float> lfoDepth{ 0.0f };      // 0-5000 Hz or degrees
     std::atomic<int> lfoDepthMode{ 0 };       // 0 = Hz, 1 = Degrees
-    std::atomic<float> lfoRate{ 1.0f };       // 0.01-20 Hz when not synced
+    std::atomic<float> lfoRate{ 1.0f };       // 0.01-60 Hz when not synced
     std::atomic<bool> lfoSync{ false };       // Tempo sync on/off
     std::atomic<int> lfoDivision{ 4 };        // Tempo division index (default 1/4)
     std::atomic<int> lfoShape{ 0 };           // 0=Sine, 1=Tri, 2=Saw, 3=InvSaw, 4=Random
+    std::atomic<bool> lfoEnabled{ false };    // R3: LFO on/off (default off, like the delay)
 
     // LFO tempo sync division multipliers (in beats, i.e. quarter notes)
     static constexpr int NUM_LFO_DIVISIONS = 14;
@@ -211,6 +207,7 @@ private:
     std::atomic<bool> dlyLfoSync{ false };     // Tempo sync on/off
     std::atomic<int> dlyLfoDivision{ 4 };      // Tempo division index (default 1/4)
     std::atomic<int> dlyLfoShape{ 0 };         // 0=Sine, 1=Tri, 2=Saw, 3=InvSaw, 4=Random
+    std::atomic<bool> dlyLfoEnabled{ false };  // R3: delay LFO on/off (default off)
 
     // Delay LFO phase (0-1) - independent from frequency LFO
     double dlyLfoPhase = 0.0;
@@ -230,7 +227,6 @@ private:
     std::atomic<double> hostBpm{ 120.0 };      // Cached host tempo
     std::atomic<float> delayFeedback{ 30.0f };
     std::atomic<float> delayDamping{ 30.0f };
-    std::atomic<float> delayDiffuse{ 50.0f };  // Spectral delay wet/dry (smear effect)
     std::atomic<float> delayGain{ 0.0f };  // dB
     std::atomic<bool> delayNeedsUpdate{ false };  // Flag for thread-safe deferred updates
 
@@ -318,6 +314,12 @@ private:
     std::array<std::vector<float>, MAX_CHANNELS> feedbackBuffers;
     std::array<int, MAX_CHANNELS> feedbackWritePos{};
 
+    // Feedback-loop source (per channel): overlap-add target for the IFFT of the
+    // pre-envelope-preservation spectrum. Recirculating THIS instead of the audible,
+    // envelope-boosted output keeps the spectral-envelope make-up gain out of the loop.
+    // Sized to match outputBuffers[ch][0] so read/write positions stay aligned.
+    std::array<std::vector<float>, MAX_CHANNELS> feedbackSourceBuffers;
+
     // Per-sample smoothed delay time (in samples) for glitch-free LFO modulation
     // One-pole exponential filter mimics analog tape motor inertia
     std::array<float, MAX_CHANNELS> smoothedDelayTimeSamples{};
@@ -326,6 +328,15 @@ private:
     // One-pole smoother for frequency LFO depth (prevents clicks on slider jumps)
     float smoothedLfoDepth = 0.0f;
     float lfoDepthSmoothCoeff = 0.0f;  // ~20ms time constant
+
+    // Additional one-pole smoothers for params that would otherwise produce zipper noise
+    // when changed during sustained audio. Block-rate updates; coeff is raised to numSamples.
+    float smoothedShiftHz = 0.0f;
+    float shiftHzSmoothCoeff = 0.0f;          // ~10ms — fastest, most audible if delayed
+    float smoothedQuantizeStrength = 0.0f;
+    float quantizeStrengthSmoothCoeff = 0.0f; // ~30ms — modulates spectral redistribution
+    float smoothedLfoRate = 0.0f;
+    float lfoRateSmoothCoeff = 0.0f;          // ~50ms — slowest, large jumps are jarring
 
     // Simple one-pole lowpass for feedback damping
     std::array<float, MAX_CHANNELS> feedbackFilterState{};
@@ -360,6 +371,7 @@ private:
     std::array<std::array<float, 4>, MAX_CHANNELS> classicFbHpfState{};  // 150Hz HPF biquad state per channel
     std::array<std::array<float, 8>, MAX_CHANNELS> classicFbLpfState{};  // LPF state (only first stage used now)
     std::array<float, 10> classicFbLpfCoeffs{};  // Coefficients for 2 cascaded biquads (5 each)
+    std::array<float, MAX_CHANNELS> classicFbDampState{};  // R5: one-pole damping LPF state (Classic feedback)
 
     // Anti-aliasing LPF on Classic mode output (~16kHz, 2nd order Butterworth)
     // Removes Nyquist-aliased content from large upward frequency shifts

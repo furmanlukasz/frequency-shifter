@@ -113,10 +113,6 @@ private:
     juce::Label dryWetLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> dryWetAttachment;
 
-    // Phase vocoder toggle
-    juce::ToggleButton phaseVocoderButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> phaseVocoderAttachment;
-
     // SMEAR control (replaces quality mode dropdown)
     juce::Slider smearSlider;
     juce::Label smearLabel;

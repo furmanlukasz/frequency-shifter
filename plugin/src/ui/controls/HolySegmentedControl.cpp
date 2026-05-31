@@ -3,12 +3,6 @@
 
 HolySegmentedControl::HolySegmentedControl() = default;
 
-void HolySegmentedControl::setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                                          const juce::String& paramId)
-{
-    attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
-}
-
 void HolySegmentedControl::addSegment(const std::string& label)
 {
     segments_.push_back(label);

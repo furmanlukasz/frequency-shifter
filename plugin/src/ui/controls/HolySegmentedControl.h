@@ -1,9 +1,8 @@
 #pragma once
 
-#include "../VisageParamAttachment.h"
+#include "VisageControl.h"
 #include "../HolyTheme.h"
-#include <visage_ui/frame.h>
-#include <memory>
+#include <functional>
 #include <vector>
 #include <string>
 
@@ -12,13 +11,10 @@
  * Displays N segments in a rounded pill; the selected segment is highlighted
  * with the accent color. Connects to a JUCE Choice parameter.
  */
-class HolySegmentedControl : public visage::Frame
+class HolySegmentedControl : public VisageControl
 {
 public:
     HolySegmentedControl();
-
-    void setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                       const juce::String& paramId);
 
     void addSegment(const std::string& label);
 
@@ -31,7 +27,6 @@ public:
     std::function<void(int)> onChange;
 
 private:
-    std::unique_ptr<VisageParamAttachment> attachment_;
     std::vector<std::string> segments_;
 
     VISAGE_LEAK_CHECKER(HolySegmentedControl)

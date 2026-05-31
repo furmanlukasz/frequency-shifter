@@ -4,12 +4,6 @@
 
 HolySlider::HolySlider() = default;
 
-void HolySlider::setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                                const juce::String& paramId)
-{
-    attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
-}
-
 void HolySlider::setSyncAttachment(juce::AudioProcessorValueTreeState& apvts,
                                     const juce::String& paramId)
 {
@@ -126,8 +120,30 @@ void HolySlider::mouseDown(const visage::MouseEvent& e)
     if (!att || dimmed_)
         return;
 
+    // Double-click resets to the parameter default.
+    // (Resets through the *active* attachment so sync-mode resets the sync param.)
+    if (e.repeatClickCount() >= 2)
+    {
+        att->beginGesture();
+        att->setNormalisedValue(att->getDefaultNormalisedValue());
+        att->endGesture();
+        redraw();
+        return;
+    }
+
     dragging_ = true;
+    fineMode_ = e.isShiftDown();
     att->beginGesture();
+
+    if (fineMode_)
+    {
+        // Fine mode: stay at current value, build from delta. No snap (defeats fine adjustment).
+        dragStartX_ = e.position.x;
+        dragStartNorm_ = att->getNormalisedValue();
+        dragCurrentNorm_ = dragStartNorm_;
+        redraw();
+        return;
+    }
 
     float sliderW = getSliderWidth();
     float rawNorm = std::clamp(e.position.x / sliderW, 0.0f, 1.0f);
@@ -153,6 +169,18 @@ void HolySlider::mouseDrag(const visage::MouseEvent& e)
         return;
 
     float sliderW = getSliderWidth();
+
+    if (fineMode_)
+    {
+        // Delta-mode at reduced sensitivity. No sync-snap — fine mode is for free precision.
+        float dx = e.position.x - dragStartX_;
+        float delta = dx / (sliderW * kFineSensitivityScale);
+        dragCurrentNorm_ = std::clamp(dragStartNorm_ + delta, 0.0f, 1.0f);
+        att->setNormalisedValue(dragCurrentNorm_);
+        redraw();
+        return;
+    }
+
     float rawNorm = std::clamp(e.position.x / sliderW, 0.0f, 1.0f);
 
     // Snap to nearest division when synced
@@ -178,5 +206,6 @@ void HolySlider::mouseUp(const visage::MouseEvent&)
             att->endGesture();
     }
     dragging_ = false;
+    fineMode_ = false;
     redraw();
 }

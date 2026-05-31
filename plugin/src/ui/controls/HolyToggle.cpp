@@ -2,12 +2,6 @@
 
 HolyToggle::HolyToggle(const std::string& label) : label_(label) {}
 
-void HolyToggle::setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                                const juce::String& paramId)
-{
-    attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
-}
-
 bool HolyToggle::isOn() const
 {
     if (attachment_)

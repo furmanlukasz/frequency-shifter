@@ -503,12 +503,6 @@ FrequencyShifterEditor::FrequencyShifterEditor(FrequencyShifterProcessor& p)
     setupLabel(sensitivityLabel, "Sensitivity");
     addAndMakeVisible(sensitivityLabel);
 
-    // Enhanced mode toggle
-    phaseVocoderButton.setButtonText("Enhanced");
-    addAndMakeVisible(phaseVocoderButton);
-    phaseVocoderAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-        audioProcessor.getValueTreeState(), FrequencyShifterProcessor::PARAM_PHASE_VOCODER, phaseVocoderButton);
-
     // SMEAR slider
     setupHorizontalSlider(smearSlider);
     smearSlider.setTextValueSuffix(" ms");
@@ -1003,10 +997,9 @@ void FrequencyShifterEditor::resized()
     int stripY = 268 + presetStripOffset;
     int stripPadding = 24;
 
-    // Smear & Enhance strip
-    phaseVocoderButton.setBounds(margin, stripY + stripPadding, 100, 24);
-    smearLabel.setBounds(margin + 110, stripY + stripPadding, 45, 22);
-    smearSlider.setBounds(margin + 160, stripY + stripPadding, getWidth() - margin * 2 - 170, 22);
+    // Smear strip
+    smearLabel.setBounds(margin, stripY + stripPadding, 45, 22);
+    smearSlider.setBounds(margin + 50, stripY + stripPadding, getWidth() - margin * 2 - 60, 22);
     stripY += 60;
 
     // Freq Modulation strip
@@ -1174,10 +1167,6 @@ void FrequencyShifterEditor::updateControlsForMode()
     // LFO Depth Mode - Spectral only
     lfoDepthModeCombo.setEnabled(!isClassic);
     lfoDepthModeCombo.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
-
-    // Enhanced Mode (Phase Vocoder) - Spectral only
-    phaseVocoderButton.setEnabled(!isClassic);
-    phaseVocoderButton.setAlpha(isClassic ? disabledAlpha : enabledAlpha);
 
     // Mask controls - all Spectral only
     maskEnabledButton.setEnabled(!isClassic);

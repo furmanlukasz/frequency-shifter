@@ -1,19 +1,14 @@
 #pragma once
 
-#include "../VisageParamAttachment.h"
+#include "VisageControl.h"
 #include "../HolyTheme.h"
-#include <visage_ui/frame.h>
-#include <memory>
 #include <vector>
 #include <string>
 
-class HolySlider : public visage::Frame
+class HolySlider : public VisageControl
 {
 public:
     HolySlider();
-
-    void setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                       const juce::String& paramId);
 
     void draw(visage::Canvas& canvas) override;
     void mouseDown(const visage::MouseEvent& e) override;
@@ -22,8 +17,6 @@ public:
 
     void setSuffix(const std::string& suffix) { suffix_ = suffix; }
     void setDecimals(int d) { decimals_ = d; }
-    void setDimmed(bool d) { if (dimmed_ != d) { dimmed_ = d; redraw(); } }
-    bool isDimmed() const { return dimmed_; }
 
     // --- Dual-purpose sync slider support ---
     // Sets a secondary attachment used when sync mode is active.
@@ -46,19 +39,19 @@ private:
     // Returns the active attachment (primary or sync)
     VisageParamAttachment* activeAttachment() const;
 
-    std::unique_ptr<VisageParamAttachment> attachment_;
     std::unique_ptr<VisageParamAttachment> syncAttachment_;
     std::vector<std::string> syncLabels_;
     std::string suffix_;
     int decimals_ = 1;
-    bool dimmed_ = false;
     bool synced_ = false;
     bool dragging_ = false;
+    bool fineMode_ = false;  // Shift held at mouseDown: delta-drag at 10x reduced sensitivity.
     float dragCurrentNorm_ = 0.0f;
     float dragStartNorm_ = 0.0f;
     float dragStartX_ = 0.0f;
 
     static constexpr float kTextWidth = 58.0f;
+    static constexpr float kFineSensitivityScale = 10.0f;
 
     VISAGE_LEAK_CHECKER(HolySlider)
 };

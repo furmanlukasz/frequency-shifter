@@ -1,17 +1,14 @@
 #pragma once
 
-#include "../VisageParamAttachment.h"
+#include "VisageControl.h"
 #include "../HolyTheme.h"
-#include <visage_ui/frame.h>
-#include <memory>
+#include <functional>
+#include <string>
 
-class HolyRotaryKnob : public visage::Frame
+class HolyRotaryKnob : public VisageControl
 {
 public:
     HolyRotaryKnob();
-
-    void setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                       const juce::String& paramId);
 
     void draw(visage::Canvas& canvas) override;
     void mouseDown(const visage::MouseEvent& e) override;
@@ -39,7 +36,6 @@ private:
     std::string formatValue(float realValue) const;
     void updateFromMousePosition(float mx, float my);
 
-    std::unique_ptr<VisageParamAttachment> attachment_;
     bool bipolar_ = true;
     std::string unit_ = "HZ";
     DisplayMapper displayMapper_;
@@ -50,9 +46,16 @@ private:
     float lastDragX_ = 0.0f;
     bool dragging_ = false;
 
+    // Shift-for-fine: when shift is held at mouseDown, switch to vertical-delta
+    // drag at reduced sensitivity for the whole gesture (matching DAW knob convention).
+    bool fineMode_ = false;
+    float fineStartY_ = 0.0f;
+    float fineStartKnobNorm_ = 0.0f;
+
     static constexpr float kStartAngle = -2.35619f;  // -3*pi/4
     static constexpr float kEndAngle = 2.35619f;     // 3*pi/4
     static constexpr float kSensitivity = 300.0f;     // pixels for full range
+    static constexpr float kFineSensitivityScale = 10.0f;  // shift-held drag is 10x finer
 
     VISAGE_LEAK_CHECKER(HolyRotaryKnob)
 };

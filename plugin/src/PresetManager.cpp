@@ -1,5 +1,46 @@
 #include "PresetManager.h"
 
+// ---------------------------------------------------------------------------
+// State versioning
+// ---------------------------------------------------------------------------
+
+void PresetManager::stampVersion(juce::ValueTree& state)
+{
+    state.setProperty("stateVersion", kCurrentStateVersion, nullptr);
+}
+
+int PresetManager::readVersion(const juce::XmlElement& xml)
+{
+    // Absent attribute = pre-versioning = v1.
+    return xml.getIntAttribute("stateVersion", 1);
+}
+
+void PresetManager::migrateState(juce::ValueTree& state, int fromVersion)
+{
+    if (fromVersion >= kCurrentStateVersion)
+        return;
+
+    // v1 -> v2: `phaseVocoder` PARAM was removed when PhaseVocoder/FrequencyShifter
+    // were folded into MusicalQuantizer. APVTS::replaceState silently ignores
+    // unknown PARAM children, so old presets load without error — but we strip
+    // the stale child so saved-and-re-saved state stays clean.
+    if (fromVersion < 2)
+    {
+        for (int i = state.getNumChildren() - 1; i >= 0; --i)
+        {
+            auto child = state.getChild(i);
+            if (child.hasType("PARAM") &&
+                child.getProperty("id").toString() == "phaseVocoder")
+            {
+                state.removeChild(i, nullptr);
+            }
+        }
+    }
+
+    // Stamp after migration so the resulting tree is current-shape.
+    stampVersion(state);
+}
+
 PresetManager::PresetManager(juce::AudioProcessorValueTreeState& apvtsRef)
     : apvts(apvtsRef)
 {
@@ -89,6 +130,7 @@ void PresetManager::savePreset(const juce::String& name)
         return; // Cannot overwrite factory presets
 
     auto state = apvts.copyState();
+    stampVersion(state);
     auto xml = state.createXml();
     if (xml != nullptr)
     {
@@ -101,6 +143,13 @@ void PresetManager::savePreset(const juce::String& name)
 
 void PresetManager::loadPreset(const juce::String& name)
 {
+    auto applyPresetXml = [this](const juce::XmlElement& xml)
+    {
+        auto tree = juce::ValueTree::fromXml(xml);
+        migrateState(tree, readVersion(xml));
+        apvts.replaceState(tree);
+    };
+
     // Try factory presets first
     for (const auto& fp : factoryPresets)
     {
@@ -109,7 +158,7 @@ void PresetManager::loadPreset(const juce::String& name)
             auto xml = juce::XmlDocument::parse(fp.xmlData);
             if (xml != nullptr && xml->hasTagName(apvts.state.getType().toString()))
             {
-                apvts.replaceState(juce::ValueTree::fromXml(*xml));
+                applyPresetXml(*xml);
                 currentPresetName = name;
             }
             return;
@@ -123,7 +172,7 @@ void PresetManager::loadPreset(const juce::String& name)
         auto xml = juce::XmlDocument::parse(file);
         if (xml != nullptr && xml->hasTagName(apvts.state.getType().toString()))
         {
-            apvts.replaceState(juce::ValueTree::fromXml(*xml));
+            applyPresetXml(*xml);
             currentPresetName = name;
         }
     }
@@ -204,7 +253,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 0.0f},
         {"dryWet", 100.0f},
         {"processingMode", 1.0f},  // Spectral
-        {"phaseVocoder", 1.0f},
         {"smear", 93.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 0.0f},
@@ -218,7 +266,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 3.0f},
         {"dryWet", 50.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 93.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 0.5f},
@@ -233,7 +280,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", -7.0f},
         {"dryWet", 80.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 93.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 2.0f},
@@ -248,7 +294,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 5.0f},
         {"dryWet", 60.0f},
         {"processingMode", 0.0f},  // Classic
-        {"phaseVocoder", 1.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 3.0f},
         {"lfoRate", 0.8f},
@@ -268,7 +313,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 200.0f},
         {"dryWet", 60.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 46.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 0.0f},
@@ -285,7 +329,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", -50.0f},
         {"dryWet", 100.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 93.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 0.0f},
@@ -293,7 +336,6 @@ void PresetManager::initFactoryPresets()
         {"delayTime", 400.0f},
         {"delayFeedback", 40.0f},
         {"delayDamping", 50.0f},
-        {"delayDiffuse", 60.0f},
         {"delayGain", 0.0f},
         {"maskEnabled", 0.0f},
         {"warm", 1.0f}
@@ -320,7 +362,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 500.0f},
         {"dryWet", 100.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 23.0f},
         {"quantizeStrength", 80.0f},
         // C Minor scale notes: C, D, Eb, F, G, Ab, Bb
@@ -346,7 +387,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 0.5f},
         {"dryWet", 100.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 123.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 0.0f},
@@ -354,7 +394,6 @@ void PresetManager::initFactoryPresets()
         {"delayTime", 500.0f},
         {"delayFeedback", 30.0f},
         {"delayDamping", 20.0f},
-        {"delayDiffuse", 90.0f},
         {"delayGain", -3.0f},
         {"maskEnabled", 0.0f},
         {"warm", 0.0f}
@@ -364,7 +403,6 @@ void PresetManager::initFactoryPresets()
         {"shiftHz", 12.0f},
         {"dryWet", 70.0f},
         {"processingMode", 1.0f},
-        {"phaseVocoder", 1.0f},
         {"smear", 93.0f},
         {"quantizeStrength", 0.0f},
         {"lfoDepth", 0.0f},
@@ -372,7 +410,6 @@ void PresetManager::initFactoryPresets()
         {"delayTime", 800.0f},
         {"delayFeedback", 50.0f},
         {"delayDamping", 60.0f},
-        {"delayDiffuse", 70.0f},
         {"delaySlope", 20.0f},
         {"delayGain", -2.0f},
         {"maskEnabled", 0.0f},

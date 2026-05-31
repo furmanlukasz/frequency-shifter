@@ -7,6 +7,15 @@ VisageHostEditor::VisageHostEditor(FrequencyShifterProcessor& p)
     setSize(kBaseWidth, kBaseHeight);
     setResizable(false, false);
     setOpaque(true);
+
+    // Basic screen-reader announcement. Visage controls aren't JUCE Components,
+    // so the host can only see the editor shell — at least let it name the plugin.
+    // A full per-control accessibility bridge would need a parallel JUCE
+    // Component tree mirroring the Visage layout (deferred — see Tier 3 #17).
+    setTitle("Holy Shifter");
+    setDescription("Holy Shifter — frequency shifter with musical scale quantization");
+    setFocusContainerType(juce::Component::FocusContainerType::focusContainer);
+
     startTimerHz(30);
 }
 

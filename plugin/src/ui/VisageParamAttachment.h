@@ -70,6 +70,12 @@ public:
         return 0.0f;
     }
 
+    // Parameter default in normalized [0, 1] space — for double-click-to-default.
+    float getDefaultNormalisedValue() const
+    {
+        return param_ ? param_->getDefaultValue() : 0.0f;
+    }
+
     juce::RangedAudioParameter* getParameter() { return param_; }
 
 private:

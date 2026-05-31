@@ -14,11 +14,12 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
       presetPrevBtn_("<"),
       presetNextBtn_(">"),
       warmToggle_("WARM"),
-      phaseVocoderToggle_(""),       // label drawn manually (Figma: label before pill)
       lfoSyncToggle_("Sync"),
+      lfoEnabledToggle_(""),
       delayEnabledToggle_(""),       // label is the strip header
       delaySyncToggle_("Sync"),
       dlyLfoSyncToggle_("Sync"),
+      dlyLfoEnabledToggle_(""),
       maskEnabledToggle_("")         // label is the strip header
 {
     // === Shift Knob ===
@@ -122,9 +123,6 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     sensitivitySlider_.setDecimals(0);
     addChild(&sensitivitySlider_);
 
-    phaseVocoderToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_PHASE_VOCODER);
-    addChild(&phaseVocoderToggle_);
-
     smearSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_SMEAR);
     smearSlider_.setSuffix(" ms");
     addChild(&smearSlider_);
@@ -154,6 +152,9 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     lfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_SYNC);
     addChild(&lfoSyncToggle_);
 
+    lfoEnabledToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_ENABLED);
+    addChild(&lfoEnabledToggle_);
+
     // === Delay (dual-purpose Time slider) ===
     delayEnabledToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_ENABLED);
     addChild(&delayEnabledToggle_);
@@ -175,9 +176,6 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
 
     delaySlopeSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_SLOPE);
     addChild(&delaySlopeSlider_);
-
-    delayDiffuseSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_DIFFUSE);
-    addChild(&delayDiffuseSlider_);
 
     stereoDecorrelateToggle_.setLabel("L/R Decorr");
     stereoDecorrelateToggle_.setLabelColor(holy::colors::accent);  // Figma: #c9a96e
@@ -204,6 +202,9 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
         dlyLfoShapeCombo_.addItem(name);
     dlyLfoShapeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_SHAPE);
     addChild(&dlyLfoShapeCombo_);
+
+    dlyLfoEnabledToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_ENABLED);
+    addChild(&dlyLfoEnabledToggle_);
 
     // === Mask ===
     maskEnabledToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_MASK_ENABLED);
@@ -240,6 +241,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     updateDelaySyncUI();
     updateLfoSyncUI();
     updateDlyLfoSyncUI();
+    updateLfoEnableUI();
 }
 
 // === HolyPresetDropdown ===
@@ -347,6 +349,22 @@ void HolyShifterUI::updateDlyLfoSyncUI()
     dlyLfoRateSlider_.setSynced(synced);
 }
 
+void HolyShifterUI::updateLfoEnableUI()
+{
+    // R3: dim each LFO's own controls when its enable toggle is off.
+    bool freqOn = lfoEnabledToggle_.isOn();
+    lfoDepthSlider_.setDimmed(!freqOn);
+    lfoRateSlider_.setDimmed(!freqOn);
+    lfoShapeCombo_.setDimmed(!freqOn);
+    lfoSyncToggle_.setDimmed(!freqOn);
+
+    bool dlyOn = dlyLfoEnabledToggle_.isOn();
+    dlyLfoDepthSlider_.setDimmed(!dlyOn);
+    dlyLfoRateSlider_.setDimmed(!dlyOn);
+    dlyLfoShapeCombo_.setDimmed(!dlyOn);
+    dlyLfoSyncToggle_.setDimmed(!dlyOn);
+}
+
 void HolyShifterUI::pollState()
 {
     currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
@@ -354,6 +372,7 @@ void HolyShifterUI::pollState()
     updateDelaySyncUI();
     updateLfoSyncUI();
     updateDlyLfoSyncUI();
+    updateLfoEnableUI();
     redrawAll();
 }
 
@@ -366,7 +385,6 @@ void HolyShifterUI::updateControlsForMode()
     preserveSlider_.setDimmed(isClassic);
     transientsSlider_.setDimmed(isClassic);
     sensitivitySlider_.setDimmed(isClassic);
-    phaseVocoderToggle_.setDimmed(isClassic);
     smearSlider_.setDimmed(isClassic);
     lfoDepthModeCombo_.setDimmed(isClassic);
     maskEnabledToggle_.setDimmed(isClassic);
@@ -374,6 +392,9 @@ void HolyShifterUI::updateControlsForMode()
     maskTransitionSlider_.setDimmed(isClassic);
     maskLowFreqSlider_.setDimmed(isClassic);
     maskHighFreqSlider_.setDimmed(isClassic);
+
+    // R4: Slope only affects Spectral mode — grey it in Classic.
+    delaySlopeSlider_.setDimmed(isClassic);
 }
 
 // === Strip drawing ===
@@ -535,11 +556,8 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.text("Transients", labelFont, visage::Font::kRight, 252, 276, 62, 20);
     canvas.text("Sens",       labelFont, visage::Font::kRight, 441, 296, 30, 20);
 
-    // "Enhanced" label (Figma: panel-rel x=22, y=184 → absolute 265, 321)
-    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
-    canvas.text("Enhanced", labelFont, visage::Font::kLeft, 265, 321, 51, 20);
-
     // "Smear" label (Figma: panel-rel x=30, y=224 → absolute 273, 361)
+    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
     canvas.text("Smear", labelFont, visage::Font::kLeft, 273, 361, 40, 20);
 
     // Smear tooltip (Figma: panel-rel x=142, y=238 → absolute 385, 375; Inter Light 8px)
@@ -558,7 +576,6 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.text("Feedback", labelFont, visage::Font::kRight, 28,  577, 60, 20);
     canvas.text("Damping",  labelFont, visage::Font::kRight, 348, 577, 58, 20);
     canvas.text("Slope",    labelFont, visage::Font::kRight, 28,  611, 42, 20);
-    canvas.text("Diffuse",  labelFont, visage::Font::kRight, 348, 611, 48, 20);
 
     // Delay Modulation labels (strip at y=651)
     canvas.text("Depth", labelFont, visage::Font::kRight, 28, 679, 42, 20);
@@ -600,7 +617,6 @@ void HolyShifterUI::resized()
     preserveSlider_.setBounds(px + 77, py + 109, 334, 20);     // Envelope row
     transientsSlider_.setBounds(px + 77, py + 139, 334, 20);   // Transients row
     sensitivitySlider_.setBounds(px + 234, py + 159, 177, 20); // Sens track at 234, w=120
-    phaseVocoderToggle_.setBounds(px + 80, py + 184, 30, 15);  // Enhanced toggle pill
     smearSlider_.setBounds(px + 77, py + 221, 343, 20);        // Smear track at 77, w=286
 
     // DepthMode combo — hidden
@@ -613,17 +629,17 @@ void HolyShifterUI::resized()
     lfoRateSlider_.setBounds(75, fmY + 57, 356, 22);           // Rate: track at 75, w=290 (dual-purpose)
     lfoSyncToggle_.setBounds(451, fmY + 57, 75, 24);           // Sync toggle
     lfoShapeCombo_.setBounds(579, fmY + 58, 76, 22);           // Shape combo on Rate row (Figma: x=579)
+    lfoEnabledToggle_.setBounds(160, fmY + 6, 30, 15);         // R3: enable pill (aligned column)
 
     // === Delay (Figma: strip at y=517, h=134) ===
     int dlY = 517;
 
-    delayEnabledToggle_.setBounds(55, dlY + 6, 30, 15);        // Enable toggle pill
+    delayEnabledToggle_.setBounds(160, dlY + 6, 30, 15);       // Enable pill (aligned column)
     delayTimeSlider_.setBounds(158, dlY + 26, 346, 22);        // Time: track at 158, w=280
     delaySyncToggle_.setBounds(523, dlY + 26, 80, 24);         // Sync toggle
     delayFeedbackSlider_.setBounds(94, dlY + 60, 238, 22);     // Feedback: track at 94, w=200
     delayDampingSlider_.setBounds(416, dlY + 60, 260, 22);     // Damping: track at 416, w=190
     delaySlopeSlider_.setBounds(76, dlY + 94, 256, 22);        // Slope: track at 76, w=218
-    delayDiffuseSlider_.setBounds(408, dlY + 94, 268, 22);     // Diffuse: track at 408, w=198
     stereoDecorrelateToggle_.setBounds(582, dlY + 114, 110, 18); // L/R Decorr
 
     // === Delay Modulation (Figma: strip at y=651, h=92) ===
@@ -633,11 +649,12 @@ void HolyShifterUI::resized()
     dlyLfoRateSlider_.setBounds(76, dmY + 58, 356, 22);        // Rate: track at 76, w=290 (dual-purpose)
     dlyLfoSyncToggle_.setBounds(452, dmY + 58, 75, 24);        // Sync
     dlyLfoShapeCombo_.setBounds(584, dmY + 56, 76, 22);        // Shape (Figma: x=584)
+    dlyLfoEnabledToggle_.setBounds(160, dmY + 6, 30, 15);      // R3: enable pill (aligned column)
 
     // === Mask (Figma: strip at y=761, h=90) ===
     int mkY = 761;
 
-    maskEnabledToggle_.setBounds(56, mkY + 6, 30, 15);         // Enable toggle pill
+    maskEnabledToggle_.setBounds(160, mkY + 6, 30, 15);        // Enable pill (aligned column)
     maskModeCombo_.setBounds(88, mkY + 23, 90, 22);            // Band Pass combo
     maskTransitionSlider_.setBounds(284, mkY + 26, 191, 22);   // Transition slider
     maskLowFreqSlider_.setBounds(62, mkY + 58, 301, 22);       // Low freq slider

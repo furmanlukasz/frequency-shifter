@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 # Project setup
-project(FrequencyShifter VERSION 0.1.0)
+project(FrequencyShifter VERSION 0.1.8)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 20)
@@ -31,8 +31,10 @@ FetchContent_Declare(
 FetchContent_Declare(
     visage
     GIT_REPOSITORY https://github.com/VitalAudio/visage.git
-    GIT_TAG main
-    GIT_SHALLOW TRUE
+    # Pinned: tracking `main` made CI fragile to upstream Visage breakage.
+    # Bump this SHA deliberately after testing against the new revision.
+    GIT_TAG b0b2ee89abb3f1173dad4d80460197eb96afa724
+    GIT_SHALLOW FALSE  # SHA pins require full history (GIT_SHALLOW only works with tags/branches)
 )
 
 FetchContent_MakeAvailable(JUCE visage)
@@ -50,6 +52,7 @@ set(PLUGIN_SOURCES
     src/ui/VisageParamAttachment.h
     src/ui/HolyShifterUI.cpp
     src/ui/HolyShifterUI.h
+    src/ui/controls/VisageControl.h
     src/ui/controls/HolyRotaryKnob.cpp
     src/ui/controls/HolyRotaryKnob.h
     src/ui/controls/HolySlider.cpp
@@ -65,10 +68,6 @@ set(PLUGIN_SOURCES
     # DSP modules
     src/dsp/STFT.cpp
     src/dsp/STFT.h
-    src/dsp/PhaseVocoder.cpp
-    src/dsp/PhaseVocoder.h
-    src/dsp/FrequencyShifter.cpp
-    src/dsp/FrequencyShifter.h
     src/dsp/MusicalQuantizer.cpp
     src/dsp/MusicalQuantizer.h
     src/dsp/Scales.h
@@ -85,8 +84,12 @@ juce_add_plugin(FrequencyShifter
     # Plugin formats to build
     FORMATS AU VST3 AUv3 Standalone
 
-    # Plugin name
-    PRODUCT_NAME "Holy Shifter v115"
+    # Plugin name. Single source of truth for the version is project(... VERSION) above;
+    # it flows into JucePlugin_VersionString and holy::kVersion (Version.h).
+    # Note for devs: dropping the version suffix means DAWs no longer auto-rescan on
+    # iteration. Bump PROJECT_VERSION for a fresh rescan, or clear the host plugin cache.
+    PRODUCT_NAME "Holy Shifter"
+    VERSION ${PROJECT_VERSION}
 
     # Plugin characteristics
     IS_SYNTH FALSE
@@ -105,6 +108,14 @@ juce_add_plugin(FrequencyShifter
 
 # Generate JUCE header
 juce_generate_juce_header(FrequencyShifter)
+
+# Generate Version.h from PROJECT_VERSION for in-code access (About dialogs, telemetry, etc.)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.h
+    @ONLY
+)
+target_include_directories(FrequencyShifter PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 # Add source files
 target_sources(FrequencyShifter PRIVATE ${PLUGIN_SOURCES})
@@ -135,4 +146,25 @@ if(MSVC)
     target_compile_options(FrequencyShifter PRIVATE /W4)
 else()
     target_compile_options(FrequencyShifter PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# ---------------------------------------------------------------------------
+# C++ DSP unit tests (Catch2). Off by default; enable with:
+#   cmake -B build -DHOLY_SHIFTER_BUILD_TESTS=ON
+#   cmake --build build --target dsp_tests && build/tests/dsp/dsp_tests
+# DSP modules under src/dsp/ are pure C++ (no JUCE), so they link standalone.
+# ---------------------------------------------------------------------------
+option(HOLY_SHIFTER_BUILD_TESTS "Build C++ DSP unit tests" OFF)
+
+if(HOLY_SHIFTER_BUILD_TESTS)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.6.0
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    enable_testing()
+    add_subdirectory(tests/dsp)
 endif()

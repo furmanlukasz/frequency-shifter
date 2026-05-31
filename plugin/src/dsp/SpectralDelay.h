@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <complex>
+#include <cstdint>
 
 namespace fshift
 {
@@ -172,31 +173,20 @@ public:
             float delayedPhase = phaseBuffers[binIdx][static_cast<size_t>(readPos0)] * (1.0f - frac)
                                + phaseBuffers[binIdx][static_cast<size_t>(readPos1)] * frac;
 
-            // Get damping factor for this bin
-            float dampFactor = dampingCurve[binIdx];
-
-            // Apply feedback with damping
-            float feedbackMag = delayedMag * feedback * dampFactor;
-
-            // Store dry magnitude before writing to delay line
+            // Store dry spectrum before writing to delay line
             float dryMag = magnitude[binIdx];
             float dryPhase = phase[binIdx];
 
-            // Write to delay line (input + feedback)
-            magnitudeBuffers[binIdx][static_cast<size_t>(writePos)] = dryMag + feedbackMag;
+            // Write input (+ optional feedback; feedback is 0 in this build) to the delay line
+            magnitudeBuffers[binIdx][static_cast<size_t>(writePos)] = dryMag + delayedMag * feedback * dampingCurve[binIdx];
             phaseBuffers[binIdx][static_cast<size_t>(writePos)] = dryPhase;
 
-            // Mix: crossfade between dry and wet (delayed) signal
-            // At mix=0: 100% dry, 0% wet
-            // At mix=100: 0% dry, 100% wet
             float wetMag = delayedMag * gain;
-            magnitude[binIdx] = dryMag * (1.0f - mix) + wetMag * mix;
 
-            // Blend phase based on mix ratio
+            // Crossfade dry and wet. 'mix' is a fixed internal wet level.
+            magnitude[binIdx] = dryMag * (1.0f - mix) + wetMag * mix;
             if (mix > 0.01f && delayedMag > 0.001f)
-            {
                 phase[binIdx] = dryPhase * (1.0f - mix) + delayedPhase * mix;
-            }
 
             // Advance write position
             writePositions[binIdx] = (writePos + 1) % maxDelayFrames;
@@ -215,7 +205,7 @@ private:
     float frequencySlope = 0.0f;   // -100 to +100
     float feedback = 0.3f;
     float damping = 30.0f;         // 0-100%
-    float mix = 0.5f;              // 0-1
+    float mix = 0.5f;              // 0-1 (fixed internal wet level for the delayed signal)
     float gain = 1.0f;             // Linear gain for delayed signal
 
     // Per-bin delay buffers

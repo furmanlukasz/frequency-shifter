@@ -56,6 +56,7 @@ private:
     void updateDelaySyncUI();
     void updateLfoSyncUI();
     void updateDlyLfoSyncUI();
+    void updateLfoEnableUI();  // R3: grey each LFO's controls when its toggle is off
 
     FrequencyShifterProcessor& processor_;
     juce::AudioProcessorValueTreeState& apvts_;
@@ -75,13 +76,12 @@ private:
     // Main shift knob
     HolyRotaryKnob shiftKnob_;
 
-    // Spectral panel (includes keyboard, sliders, Enhanced, Smear)
+    // Spectral panel (includes keyboard, sliders, Smear)
     HolyPianoKeyboard pianoKeyboard_;
     HolySlider quantizeSlider_;
     HolySlider preserveSlider_;
     HolySlider transientsSlider_;
     HolySlider sensitivitySlider_;
-    HolyToggle phaseVocoderToggle_;  // Enhanced
     HolySlider smearSlider_;
 
     // Freq Modulation
@@ -90,6 +90,7 @@ private:
     HolyComboBox lfoShapeCombo_;       // Sine/Tri/Saw/etc — on Rate row (per Figma)
     HolySlider lfoRateSlider_;         // dual-purpose: Hz when free, divisions when synced
     HolyToggle lfoSyncToggle_;
+    HolyToggle lfoEnabledToggle_;      // R3: LFO on/off (section header pill)
 
     // Delay
     HolyToggle delayEnabledToggle_;
@@ -98,7 +99,6 @@ private:
     HolySlider delayFeedbackSlider_;
     HolySlider delayDampingSlider_;
     HolySlider delaySlopeSlider_;
-    HolySlider delayDiffuseSlider_;
     HolyToggle stereoDecorrelateToggle_;
 
     // Delay Modulation
@@ -106,6 +106,7 @@ private:
     HolySlider dlyLfoRateSlider_;       // dual-purpose: Hz when free, divisions when synced
     HolyToggle dlyLfoSyncToggle_;
     HolyComboBox dlyLfoShapeCombo_;
+    HolyToggle dlyLfoEnabledToggle_;    // R3: delay LFO on/off (section header pill)
 
     // Mask
     HolyToggle maskEnabledToggle_;

@@ -105,9 +105,17 @@ public:
      * @param phase Phase spectrum (used only for bypassed bins when strength < 1)
      * @param sampleRate Sample rate in Hz
      * @param fftSize FFT size
+     * @param shiftHz Continuous Hz offset applied to each bin before scale snap.
+     *                Sub-bin precision is preserved by the two-nearest weighted distribution,
+     *                so this is the right hook for a continuous in-key frequency shifter.
      * @param strength Quantization strength (0-1)
      * @param driftCents Optional array of drift values per bin (in cents)
      * @param preShiftEnvelope Optional pre-captured envelope from INPUT before any processing
+     * @param preEnvelopeMagnitudeOut Optional: if non-null, receives the post-quantize,
+     *                energy-normalized magnitude BEFORE spectral-envelope preservation is
+     *                applied. Callers feeding a feedback loop should recirculate THIS rather
+     *                than the returned (envelope-boosted) magnitude, so the per-band envelope
+     *                make-up gain does not compound around the loop.
      * @return Pair of (quantized_magnitude, quantized_phase)
      */
     std::pair<std::vector<float>, std::vector<float>> quantizeSpectrum(
@@ -115,9 +123,11 @@ public:
         const std::vector<float>& phase,
         double sampleRate,
         int fftSize,
+        float shiftHz,
         float strength = 1.0f,
         const std::vector<float>* driftCents = nullptr,
-        const std::vector<float>* preShiftEnvelope = nullptr);
+        const std::vector<float>* preShiftEnvelope = nullptr,
+        std::vector<float>* preEnvelopeMagnitudeOut = nullptr);
 
     /**
      * Capture spectral envelope from magnitude spectrum.

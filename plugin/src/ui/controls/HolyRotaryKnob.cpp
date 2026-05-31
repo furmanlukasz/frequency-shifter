@@ -8,12 +8,6 @@
 
 HolyRotaryKnob::HolyRotaryKnob() = default;
 
-void HolyRotaryKnob::setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                                    const juce::String& paramId)
-{
-    attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
-}
-
 float HolyRotaryKnob::normValueToAngle(float norm) const
 {
     return kStartAngle + norm * (kEndAngle - kStartAngle);
@@ -118,18 +112,50 @@ void HolyRotaryKnob::draw(visage::Canvas& canvas)
 
 void HolyRotaryKnob::mouseDown(const visage::MouseEvent& e)
 {
+    if (!attachment_)
+        return;
+    if (handleDoubleClickReset(e))
+        return;
+
     dragging_ = true;
-    if (attachment_)
-        attachment_->beginGesture();
-    // Immediately set value from mouse angle
-    updateFromMousePosition(e.position.x, e.position.y);
+    fineMode_ = e.isShiftDown();
+    attachment_->beginGesture();
+
+    if (fineMode_)
+    {
+        // Fine mode: stay at current value, accumulate vertical-delta moves at reduced sensitivity.
+        fineStartY_ = e.position.y;
+        float paramNorm = attachment_->getNormalisedValue();
+        fineStartKnobNorm_ = fromParamMapper_ ? fromParamMapper_(paramNorm) : paramNorm;
+        redraw();
+    }
+    else
+    {
+        // Coarse mode: jump to clicked angle (existing behavior).
+        updateFromMousePosition(e.position.x, e.position.y);
+    }
 }
 
 void HolyRotaryKnob::mouseDrag(const visage::MouseEvent& e)
 {
     if (!dragging_ || !attachment_)
         return;
-    updateFromMousePosition(e.position.x, e.position.y);
+
+    if (fineMode_)
+    {
+        // Vertical drag, scaled down. Upward = increasing.
+        float dy = fineStartY_ - e.position.y;
+        float deltaKnobNorm = dy / (kSensitivity * kFineSensitivityScale);
+        float newKnobNorm = std::clamp(fineStartKnobNorm_ + deltaKnobNorm, 0.0f, 1.0f);
+        dragKnobNorm_ = newKnobNorm;
+        dragCurrentNorm_ = toParamMapper_ ? toParamMapper_(newKnobNorm) : newKnobNorm;
+        attachment_->setNormalisedValue(dragCurrentNorm_);
+        redraw();
+    }
+    else
+    {
+        updateFromMousePosition(e.position.x, e.position.y);
+    }
 }
 
 void HolyRotaryKnob::mouseUp(const visage::MouseEvent&)
@@ -137,6 +163,7 @@ void HolyRotaryKnob::mouseUp(const visage::MouseEvent&)
     if (dragging_ && attachment_)
         attachment_->endGesture();
     dragging_ = false;
+    fineMode_ = false;
     redraw();
 }
 

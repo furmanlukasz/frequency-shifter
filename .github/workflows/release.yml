@@ -1,5 +1,21 @@
 name: Release
 
+# ---------------------------------------------------------------------------
+# Tag-triggered release. Builds, signs, notarizes, and packages everything;
+# uploads the signed .pkg, signed .vst3.zip, and Windows installer to the
+# GitHub Release. Eliminates the manual Downloads/ packaging workspace.
+#
+# Required GitHub repo secrets (Settings -> Secrets and variables -> Actions):
+#   APPLE_DEV_ID_APP_P12_BASE64       base64 of "Developer ID Application" .p12
+#   APPLE_DEV_ID_APP_P12_PASSWORD     password for the .p12 above
+#   APPLE_DEV_ID_INSTALLER_P12_BASE64 base64 of "Developer ID Installer" .p12
+#   APPLE_DEV_ID_INSTALLER_P12_PASSWORD  password for the installer .p12
+#   APPLE_NOTARY_USER                 Apple ID (email) used for notarytool
+#   APPLE_NOTARY_TEAM_ID              Apple team ID (10-char)
+#   APPLE_NOTARY_PASSWORD             app-specific password from appleid.apple.com
+#   KEYCHAIN_PASSWORD                 arbitrary string — gates the temp keychain
+# ---------------------------------------------------------------------------
+
 on:
   push:
     tags:
@@ -14,6 +30,11 @@ on:
 jobs:
   build-macos:
     runs-on: macos-14
+    env:
+      PRODUCT_NAME: "Holy Shifter"
+      BUNDLE_ID: com.harmonictools.frequencyshifter
+      DEV_ID_APP: "Developer ID Application: benjamin vaughan (DU92Z6L82F)"
+      DEV_ID_INSTALLER: "Developer ID Installer: benjamin vaughan (DU92Z6L82F)"
 
     steps:
     - name: Checkout
@@ -24,36 +45,152 @@ jobs:
     - name: Setup CMake
       uses: lukka/get-cmake@latest
 
-    - name: Configure CMake
+    # ---- Import signing certificates into a temp keychain --------------------
+    - name: Create temporary keychain
+      env:
+        KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      run: |
+        security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+        security set-keychain-settings -lut 21600 build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+    - name: Import Developer ID Application cert
+      env:
+        P12_BASE64: ${{ secrets.APPLE_DEV_ID_APP_P12_BASE64 }}
+        P12_PASSWORD: ${{ secrets.APPLE_DEV_ID_APP_P12_PASSWORD }}
+        KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      run: |
+        echo "$P12_BASE64" | base64 --decode > dev-id-app.p12
+        security import dev-id-app.p12 -k build.keychain -P "$P12_PASSWORD" \
+          -T /usr/bin/codesign -T /usr/bin/security
+        rm dev-id-app.p12
+
+    - name: Import Developer ID Installer cert
+      env:
+        P12_BASE64: ${{ secrets.APPLE_DEV_ID_INSTALLER_P12_BASE64 }}
+        P12_PASSWORD: ${{ secrets.APPLE_DEV_ID_INSTALLER_P12_PASSWORD }}
+        KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      run: |
+        echo "$P12_BASE64" | base64 --decode > dev-id-installer.p12
+        security import dev-id-installer.p12 -k build.keychain -P "$P12_PASSWORD" \
+          -T /usr/bin/productsign -T /usr/bin/security
+        rm dev-id-installer.p12
+
+    - name: Trust the keychain for codesign without prompts
+      env:
+        KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      run: |
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+    # ---- Build universal binary ---------------------------------------------
+    - name: Configure + build
       working-directory: plugin
       run: |
         cmake -B build \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
           -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
+        cmake --build build --config Release --parallel
 
-    - name: Build
-      working-directory: plugin
-      run: cmake --build build --config Release --parallel
-
-    - name: Package VST3
+    - name: Locate artifacts
+      id: artifacts
       working-directory: plugin
       run: |
+        VST3="$(find build -name 'Holy Shifter.vst3' -type d | head -1)"
+        AU="$(find build -name 'Holy Shifter.component' -type d | head -1)"
+        echo "vst3=$VST3" >> $GITHUB_OUTPUT
+        echo "au=$AU"     >> $GITHUB_OUTPUT
+        echo "VST3: $VST3"
+        echo "AU:   $AU"
+
+    # ---- Sign --------------------------------------------------------------
+    - name: Sign VST3
+      working-directory: plugin
+      run: |
+        codesign --deep --force --options runtime --timestamp \
+          --sign "$DEV_ID_APP" \
+          "${{ steps.artifacts.outputs.vst3 }}"
+        codesign --verify --verbose "${{ steps.artifacts.outputs.vst3 }}"
+
+    - name: Strip AU resource-fork detritus and sign
+      working-directory: plugin
+      run: |
+        ./scripts/clean_au_bundle.sh "${{ steps.artifacts.outputs.au }}"
+        # Sign the inner Mach-O first, then the bundle (the order JUCE AU prefers).
+        AU_BIN="${{ steps.artifacts.outputs.au }}/Contents/MacOS/Holy Shifter"
+        codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$AU_BIN"
+        codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "${{ steps.artifacts.outputs.au }}"
+        codesign --verify --verbose "${{ steps.artifacts.outputs.au }}"
+
+    # ---- Build the installer pkg --------------------------------------------
+    - name: Build .pkg
+      working-directory: plugin
+      run: |
+        mkdir -p pkg-root/Library/Audio/Plug-Ins/VST3
+        mkdir -p pkg-root/Library/Audio/Plug-Ins/Components
+        cp -R "${{ steps.artifacts.outputs.vst3 }}" pkg-root/Library/Audio/Plug-Ins/VST3/
+        cp -R "${{ steps.artifacts.outputs.au }}"   pkg-root/Library/Audio/Plug-Ins/Components/
+
         mkdir -p artifacts
-        cd build/FrequencyShifter_artefacts/Release/VST3
-        zip -r ../../../../artifacts/FrequencyShifter-macOS-VST3.zip *.vst3
+        VERSION="${GITHUB_REF##*/v}"
+        if [[ "$VERSION" == "$GITHUB_REF" ]]; then VERSION="${{ github.event.inputs.version }}"; fi
+        VERSION="${VERSION#v}"
+        echo "Packaging version: $VERSION"
 
-    - name: Package AU
+        pkgbuild \
+          --root pkg-root \
+          --identifier "$BUNDLE_ID" \
+          --version "$VERSION" \
+          --install-location "/" \
+          artifacts/holy-shifter-unsigned.pkg
+
+        productsign \
+          --sign "$DEV_ID_INSTALLER" \
+          --timestamp \
+          artifacts/holy-shifter-unsigned.pkg \
+          "artifacts/Holy Shifter ${VERSION}.pkg"
+
+        rm artifacts/holy-shifter-unsigned.pkg
+
+    # ---- Notarize ----------------------------------------------------------
+    - name: Notarize .pkg
+      working-directory: plugin
+      env:
+        APPLE_NOTARY_USER: ${{ secrets.APPLE_NOTARY_USER }}
+        APPLE_NOTARY_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+        APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+      run: |
+        PKG="$(find artifacts -name '*.pkg' | head -1)"
+        echo "Notarizing: $PKG"
+        xcrun notarytool submit "$PKG" \
+          --apple-id "$APPLE_NOTARY_USER" \
+          --team-id  "$APPLE_NOTARY_TEAM_ID" \
+          --password "$APPLE_NOTARY_PASSWORD" \
+          --wait
+        xcrun stapler staple "$PKG"
+        spctl --assess --verbose --type install "$PKG"
+
+    # ---- Zip the bundles for VST3/AU-only downloads -------------------------
+    - name: Package VST3 + AU zips
       working-directory: plugin
       run: |
-        cd build/FrequencyShifter_artefacts/Release/AU
-        zip -r ../../../../artifacts/FrequencyShifter-macOS-AU.zip *.component
+        cd artifacts
+        zip -r FrequencyShifter-macOS-VST3.zip -j "${{ steps.artifacts.outputs.vst3 }}" || true
+        # `-j` flattens; use ditto for proper bundle copies:
+        rm -f FrequencyShifter-macOS-VST3.zip FrequencyShifter-macOS-AU.zip
+        ditto -c -k --keepParent "$GITHUB_WORKSPACE/plugin/${{ steps.artifacts.outputs.vst3 }}" FrequencyShifter-macOS-VST3.zip
+        ditto -c -k --keepParent "$GITHUB_WORKSPACE/plugin/${{ steps.artifacts.outputs.au }}"   FrequencyShifter-macOS-AU.zip
 
-    - name: Upload artifacts
+    - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
       with:
         name: macos-plugins
-        path: plugin/artifacts/*.zip
+        path: plugin/artifacts/*
+
+    - name: Delete temporary keychain
+      if: always()
+      run: security delete-keychain build.keychain || true
 
   build-windows:
     runs-on: windows-latest
@@ -67,14 +204,11 @@ jobs:
     - name: Setup CMake
       uses: lukka/get-cmake@latest
 
-    - name: Configure CMake
+    - name: Configure + build
       working-directory: plugin
       run: |
         cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      working-directory: plugin
-      run: cmake --build build --config Release --parallel
+        cmake --build build --config Release --parallel
 
     - name: Package VST3
       working-directory: plugin
@@ -121,45 +255,33 @@ jobs:
         fi
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.version }}
-        name: Frequency Shifter ${{ steps.version.outputs.version }}
+        name: Holy Shifter ${{ steps.version.outputs.version }}
         draft: false
         prerelease: false
         body: |
-          ## Harmonic-Preserving Frequency Shifter ${{ steps.version.outputs.version }}
+          ## Holy Shifter ${{ steps.version.outputs.version }}
 
-          A VST3/AU audio plugin that combines frequency shifting with musical scale quantization.
+          Harmonic-preserving frequency shifter — combines frequency shifting with musical scale quantization.
 
           ### Downloads
 
           | Platform | Format | File |
           |----------|--------|------|
-          | macOS (Universal) | VST3 | `FrequencyShifter-macOS-VST3.zip` |
-          | macOS (Universal) | AU | `FrequencyShifter-macOS-AU.zip` |
-          | Windows | VST3 | `FrequencyShifter-Windows-VST3.zip` |
+          | macOS (Universal, signed + notarized) | Installer | `Holy Shifter ${{ steps.version.outputs.version }}.pkg` |
+          | macOS (Universal) | VST3 zip | `FrequencyShifter-macOS-VST3.zip` |
+          | macOS (Universal) | AU zip | `FrequencyShifter-macOS-AU.zip` |
+          | Windows | VST3 zip | `FrequencyShifter-Windows-VST3.zip` |
 
           ### Installation
 
-          **macOS VST3:**
-          - Extract and copy to `/Library/Audio/Plug-Ins/VST3/` (system-wide) or `~/Library/Audio/Plug-Ins/VST3/` (user)
-
-          **macOS AU:**
-          - Extract and copy to `/Library/Audio/Plug-Ins/Components/` (system-wide) or `~/Library/Audio/Plug-Ins/Components/` (user)
-
-          **Windows VST3:**
-          - Extract and copy to `C:\Program Files\Common Files\VST3\`
-
-          ### System Requirements
-
-          - **macOS:** 11.0+ (Intel and Apple Silicon)
-          - **Windows:** Windows 10+
-          - **DAW:** Any VST3 or AU compatible host
-
-          ### What's New
+          - **macOS (recommended):** double-click the `.pkg`. The installer is signed and notarized — no Gatekeeper warning.
+          - **macOS manual:** extract a zip and copy the `.vst3` or `.component` to `~/Library/Audio/Plug-Ins/`.
+          - **Windows:** extract and copy the `.vst3` to `C:\Program Files\Common Files\VST3\`.
 
           See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
 
         files: |
-          release/*.zip
+          release/*

@@ -18,12 +18,6 @@ visage::Frame* HolyComboBox::sharedDropdown()
     return sharedDropdown_;
 }
 
-void HolyComboBox::setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                                  const juce::String& paramId)
-{
-    attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
-}
-
 void HolyComboBox::addItem(const std::string& name)
 {
     items_.push_back(name);
