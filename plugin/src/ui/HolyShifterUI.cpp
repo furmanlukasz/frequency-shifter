@@ -1,7 +1,30 @@
 #include "HolyShifterUI.h"
 #include "../PluginProcessor.h"
 #include "../dsp/Scales.h"
-#include "embedded/holy_images.h"   // embedded Heathen Machines logo (holy::images::*_png)
+#include "embedded/holy_images.h"   // embedded Heathen Machines logo + pagan backdrop (holy::images::*_png)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pagan "grimoire" background texture
+// ─────────────────────────────────────────────────────────────────────────────
+// The embedded artwork (assets/pagan-background.png) is painted behind everything,
+// then knocked back by a translucent scrim so the runes read as a subtle backdrop
+// while the gold controls stay legible. The section panels — opaque near-black fills
+// in the flat design — become translucent here so the texture bleeds through them.
+// These alphas are the single tuning surface for the effect's intensity.
+namespace paganbg {
+    constexpr unsigned int kScrim      = 0xA40A0A0Cu; // dark scrim over the artwork (~64%)
+    constexpr unsigned int kStripAlpha = 0x4Du;       // Freq/Delay/DelayMod section strips
+    constexpr unsigned int kStripDim   = 0x26u;       // …same strips when dimmed (Classic mode)
+    constexpr unsigned int kModeAlpha  = 0x73u;       // CLASSIC/SPECTRAL selector bar
+    constexpr unsigned int kPanelAlpha = 0xCCu;       // Spectral Controls panel (stays a raised box)
+    constexpr unsigned int kMaskAlpha  = 0x80u;       // Mask section
+    constexpr unsigned int kMixAlpha   = 0x99u;       // Dry/Wet footer
+
+    // Replace just the alpha byte of an 0xAARRGGBB color.
+    constexpr unsigned int withAlpha(unsigned int argb, unsigned int a) {
+        return (a << 24) | (argb & 0x00FFFFFFu);
+    }
+}
 
 // Unified division labels for all sync sliders (matches both arrays in PluginProcessor.h)
 static const std::vector<std::string> kDivisionLabels = {
@@ -407,7 +430,8 @@ void HolyShifterUI::updateControlsForMode()
 void HolyShifterUI::drawStrip(visage::Canvas& canvas, int y, int h,
                                 const std::string& label, bool dimmed)
 {
-    unsigned int stripCol = dimmed ? 0x4D0E0E10u : holy::colors::strip;
+    unsigned int stripCol = dimmed ? paganbg::withAlpha(holy::colors::strip, paganbg::kStripDim)
+                                   : paganbg::withAlpha(holy::colors::strip, paganbg::kStripAlpha);
     canvas.setColor(stripCol);
     canvas.fill(0, y, width(), h);
 
@@ -457,8 +481,14 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     int w = static_cast<int>(width());
     int h = static_cast<int>(height());
 
-    // Background (Figma: #0a0a0c)
+    // Background — pagan artwork backdrop (replaces the flat #0a0a0c fill of the original design).
+    // Base fill first (shows through transparent edges / if the image ever fails to decode), then
+    // the artwork stretched to the fixed 700×928 window, then a translucent scrim to knock it back.
     canvas.setColor(holy::colors::background);
+    canvas.fill(0, 0, w, h);
+    canvas.setColor(0xFFFFFFFFu);   // white brush = untinted artwork at full alpha
+    canvas.image(holy::images::pagan_background_png, 0, 0, w, h);
+    canvas.setColor(paganbg::kScrim);
     canvas.fill(0, 0, w, h);
 
     // Top accent gradient line (Figma: y=-1, 1px, gradient gold)
@@ -490,7 +520,7 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.text(currentPresetName_.c_str(), presetFont, visage::Font::kLeft, 91, 69, 300, 20);
 
     // Mode selector strip (Figma: bg #0c0c0e, y=101, h=36, top line #1a1a1d)
-    canvas.setColor(holy::colors::modeSelectorBg);
+    canvas.setColor(paganbg::withAlpha(holy::colors::modeSelectorBg, paganbg::kModeAlpha));
     canvas.fill(0, 101, w, 36);
     canvas.setColor(holy::colors::stripBorder);
     canvas.segment(0.0f, 101.0f, static_cast<float>(w), 101.0f, 1.0f, false);
@@ -500,8 +530,8 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
 
     // Spectral panel (Figma: x=245, y=158, w=430, h=240; vertical gradient #19191d→#101013, border #1c1c20)
     {
-        unsigned int gTop = holy::dimColor(holy::colors::panelGradTop, isClassic);
-        unsigned int gBot = holy::dimColor(holy::colors::panelGradBot, isClassic);
+        unsigned int gTop = holy::dimColor(paganbg::withAlpha(holy::colors::panelGradTop, paganbg::kPanelAlpha), isClassic);
+        unsigned int gBot = holy::dimColor(paganbg::withAlpha(holy::colors::panelGradBot, paganbg::kPanelAlpha), isClassic);
         canvas.setColor(visage::Brush::vertical(visage::Color(gTop), visage::Color(gBot)));
         canvas.roundedRectangle(245.0f, 158.0f, 430.0f, 240.0f, 6.0f);
     }
@@ -528,7 +558,7 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     drawStrip(canvas, 651,  92, "DELAY MODULATION");
 
     // Mask strip (Figma: bg #19191d, different from other strips)
-    canvas.setColor(holy::dimColor(holy::colors::maskBg, isClassic));
+    canvas.setColor(holy::dimColor(paganbg::withAlpha(holy::colors::maskBg, paganbg::kMaskAlpha), isClassic));
     canvas.fill(0, 761, w, 90);
     canvas.setColor(holy::colors::stripBorder);
     canvas.segment(0.0f, 761.0f, static_cast<float>(w), 761.0f, 1.0f, false);
@@ -539,8 +569,9 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     }
 
     // Mix footer (Figma: vertical gradient #0f0f11→#0a0a0c, h=72; no section label in the design)
-    canvas.setColor(visage::Brush::vertical(visage::Color(holy::colors::mixGradTop),
-                                            visage::Color(holy::colors::background)));
+    canvas.setColor(visage::Brush::vertical(
+        visage::Color(paganbg::withAlpha(holy::colors::mixGradTop, paganbg::kMixAlpha)),
+        visage::Color(paganbg::withAlpha(holy::colors::background, paganbg::kMixAlpha))));
     canvas.fill(0, 851, w, 72);
     canvas.setColor(holy::colors::stripBorder);
     canvas.segment(0.0f, 851.0f, static_cast<float>(w), 851.0f, 1.0f, false);
