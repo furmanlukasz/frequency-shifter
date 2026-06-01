@@ -1,6 +1,7 @@
 #include "HolyShifterUI.h"
 #include "../PluginProcessor.h"
 #include "../dsp/Scales.h"
+#include "embedded/holy_images.h"   // embedded Heathen Machines logo (holy::images::*_png)
 
 // Unified division labels for all sync sliders (matches both arrays in PluginProcessor.h)
 static const std::vector<std::string> kDivisionLabels = {
@@ -473,6 +474,11 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.setColor(holy::colors::textMuted);
     canvas.text("Frequency Shifter with Harmonic Quantisation", subtitleFont,
                 visage::Font::kLeft, 29, 45, 400, 12);
+
+    // Heathen Machines logo — Figma node 174:40 (top-right, 608,18, 53x53). Transparent PNG,
+    // drawn aspect-preserved at 51x53. White brush = untinted, full alpha.
+    canvas.setColor(0xFFFFFFFFu);
+    canvas.image(holy::images::heathen_machines_logo_png, 609, 18, 51, 53);
 
     // Preset separator line (Figma: y=94, 1px, #1a1a1d — no bg fill for preset area)
     canvas.setColor(holy::colors::stripBorder);

@@ -132,7 +132,7 @@ All ✅ unless noted. Param IDs from `PluginProcessor.h`.
 
 ## 8. Assets
 
-- **Logo** — `Heathen Machines` lockup. True-transparent master prepared at `~/Downloads/heathen-machines-logo@4096.png` (4096²) / `…-trimmed.png` (3862×3987). Note: original Downloads files were fake-transparent (baked checkerboard); these are the cleaned RGBA versions. Embed downscaled (`@1x/@2x/@3x`) for the 53×53 header slot (node `174:40`). Only bitmap asset in the design — everything else is vector primitives.
+- **Logo** — `Heathen Machines` lockup. ✅ **DONE & verified.** Cleaned RGBA master (`~/Downloads/heathen-machines-logo-trimmed.png`, 3862×3987) downscaled to **`plugin/assets/heathen-machines-logo.png`** (248×256, ~100 KB), embedded via `add_embedded_resources(HolyShifterImages "holy_images.h" "holy::images")` → `holy::images::heathen_machines_logo_png`, drawn in `HolyShifterUI::draw()` with `canvas.image(file, 609, 18, 51, 53)` (white brush = untinted; aspect-preserved in the Figma 53×53 slot, node `174:40`). NB: the original Downloads files were fake-transparent (baked checkerboard) — these are the keyed RGBA versions. Only bitmap asset in the design; everything else is vector primitives.
 
 ## 9. Open decisions (unresolved)
 

@@ -46,6 +46,11 @@ FetchContent_MakeAvailable(JUCE visage)
 file(GLOB HOLY_FONT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fonts/*.ttf")
 add_embedded_resources(HolyShifterFonts "holy_fonts.h" "holy::fonts" "${HOLY_FONT_FILES}")
 
+# Embed UI images (e.g. the Heathen Machines logo) the same way → holy::images::*_png,
+# decoded + atlased by Visage at draw time (canvas.image()).
+file(GLOB HOLY_IMAGE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png")
+add_embedded_resources(HolyShifterImages "holy_images.h" "holy::images" "${HOLY_IMAGE_FILES}")
+
 # Plugin sources
 set(PLUGIN_SOURCES
     src/PluginProcessor.cpp
@@ -143,6 +148,7 @@ target_link_libraries(FrequencyShifter
         juce::juce_dsp
         visage
         HolyShifterFonts
+        HolyShifterImages
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
