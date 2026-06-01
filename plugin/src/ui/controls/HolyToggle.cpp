@@ -35,7 +35,7 @@ void HolyToggle::draw(visage::Canvas& canvas)
     // Label (Figma: 9px Inter Medium, tracking varies)
     if (!label_.empty())
     {
-        auto font = holy::makeFont(10.0f);
+        auto font = holy::makeFont(10.0f, holy::FontWeight::Medium);
         unsigned int color = labelColor_ != 0 ? labelColor_
             : (on ? holy::colors::text : holy::colors::textSec);
         canvas.setColor(holy::dimColor(color, d));

@@ -98,13 +98,13 @@ void HolyRotaryKnob::draw(visage::Canvas& canvas)
     float displayValue = displayMapper_ ? displayMapper_(knobNorm)
                                         : (attachment_ ? attachment_->getValue() : 0.0f);
     std::string valueText = formatValue(displayValue);
-    auto valueFont = holy::makeFont(32.0f);
+    auto valueFont = holy::makeFont(32.0f, holy::FontWeight::Light);
     canvas.setColor(holy::colors::text);
     canvas.text(valueText.c_str(), valueFont, visage::Font::kCenter,
                 static_cast<int>(centreX - 50), static_cast<int>(centreY - 16), 100, 32);
 
     // Unit text
-    auto unitFont = holy::makeFont(11.0f);
+    auto unitFont = holy::makeFont(11.0f, holy::FontWeight::Medium);
     canvas.setColor(holy::colors::textMuted);
     canvas.text(unit_.c_str(), unitFont, visage::Font::kCenter,
                 static_cast<int>(centreX - 20), static_cast<int>(centreY + 16), 40, 14);

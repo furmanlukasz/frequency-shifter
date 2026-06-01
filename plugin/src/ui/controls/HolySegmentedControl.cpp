@@ -35,7 +35,8 @@ void HolySegmentedControl::draw(visage::Canvas& canvas)
     canvas.roundedRectangleBorder(0, 0, w, h, r, 1.0f);
 
     float segW = w / static_cast<float>(n);
-    auto labelFont = holy::makeFont(13.0f);
+    auto selFont   = holy::makeFont(13.0f, holy::FontWeight::SemiBold);  // active segment
+    auto unselFont = holy::makeFont(13.0f, holy::FontWeight::Medium);    // inactive segment
 
     for (int i = 0; i < n; ++i)
     {
@@ -51,14 +52,14 @@ void HolySegmentedControl::draw(visage::Canvas& canvas)
 
             // Selected text: dark on accent
             canvas.setColor(holy::colors::background);
-            canvas.text(segments_[i].c_str(), labelFont, visage::Font::kCenter,
+            canvas.text(segments_[i].c_str(), selFont, visage::Font::kCenter,
                         static_cast<int>(sx), 0, static_cast<int>(segW), static_cast<int>(h));
         }
         else
         {
             // Unselected text: muted
             canvas.setColor(holy::colors::textSec);
-            canvas.text(segments_[i].c_str(), labelFont, visage::Font::kCenter,
+            canvas.text(segments_[i].c_str(), unselFont, visage::Font::kCenter,
                         static_cast<int>(sx), 0, static_cast<int>(segW), static_cast<int>(h));
         }
     }

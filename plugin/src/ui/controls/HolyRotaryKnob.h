@@ -43,7 +43,6 @@ private:
     InverseMapper fromParamMapper_;
     float dragCurrentNorm_ = 0.0f;
     float dragKnobNorm_ = 0.0f;
-    float lastDragX_ = 0.0f;
     bool dragging_ = false;
 
     // Shift-for-fine: when shift is held at mouseDown, switch to vertical-delta

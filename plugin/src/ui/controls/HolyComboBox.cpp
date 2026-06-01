@@ -69,8 +69,9 @@ void HolyComboBox::draw(visage::Canvas& canvas)
     canvas.roundedRectangleBorder(0, 0, w, h, 3.0f, 1.0f);
 
     std::string text = getSelectedText();
-    auto font = holy::makeFont(13.0f);
-    canvas.setColor(holy::dimColor(holy::colors::text, d));
+    auto font = holy::makeFont(textSize_ > 0.0f ? textSize_ : 13.0f);
+    unsigned int tc = textColor_ != 0 ? textColor_ : holy::colors::text;
+    canvas.setColor(holy::dimColor(tc, d));
     canvas.text(text.c_str(), font, visage::Font::kLeft,
                 8, 0, static_cast<int>(w - 20), static_cast<int>(h));
 

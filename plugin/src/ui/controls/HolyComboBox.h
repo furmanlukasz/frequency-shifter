@@ -21,12 +21,19 @@ public:
     void selectIndex(int idx);
     const std::vector<std::string>& getItems() const { return items_; }
 
+    // Per-instance display-text overrides (Figma styles some combos differently).
+    // textColor 0 = theme default (HolyText); textSize <= 0 = default 13px.
+    void setTextColor(unsigned int argb) { textColor_ = argb; }
+    void setTextSize(float px) { textSize_ = px; }
+
     // Provide a shared dropdown frame (owned by root UI)
     static void setSharedDropdown(visage::Frame* dropdown);
     static visage::Frame* sharedDropdown();
 
 private:
     std::vector<std::string> items_;
+    unsigned int textColor_ = 0;     // 0 = theme default (HolyText)
+    float textSize_ = 13.0f;
     static visage::Frame* sharedDropdown_;
 
     VISAGE_LEAK_CHECKER(HolyComboBox)

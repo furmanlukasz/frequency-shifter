@@ -80,9 +80,10 @@ void HolyPianoKeyboard::draw(visage::Canvas& canvas)
         float kx, ky, kw, kh;
         getWhiteKeyRect(i, kx, ky, kw, kh);
 
-        canvas.setColor(holy::dimColor(noteStates_[pc] ? holy::colors::accent : 0xFF1E1E22u, d));
+        // Figma: white keys = subtle gold tint rgba(201,169,110,0.2), border 0.15 gold (not solid gold)
+        canvas.setColor(holy::dimColor(noteStates_[pc] ? 0x33C9A96Eu : 0xFF1E1E22u, d));
         canvas.roundedRectangle(kx, ky, kw, kh, r);
-        canvas.setColor(holy::dimColor(0xFF2A2A2Eu, d));
+        canvas.setColor(holy::dimColor(0x26C9A96Eu, d));
         canvas.roundedRectangleBorder(kx, ky, kw, kh, r, 0.5f);
     }
 
@@ -93,9 +94,13 @@ void HolyPianoKeyboard::draw(visage::Canvas& canvas)
         float kx, ky, kw, kh;
         getBlackKeyRect(pc, kx, ky, kw, kh);
 
-        canvas.setColor(holy::dimColor(noteStates_[pc] ? holy::colors::accent : holy::colors::background, d));
+        // Black keys — SOLID opaque (a black key straddles the white-key seam; a translucent
+        // fill would let that seam show through as a split down the middle). Selection changes
+        // the key COLOR: ON = opaque #2d2922 — the white-key selected look (≈#3c362d, 20% gold
+        // over the dark panel) taken ~25% darker — OFF = near-black #0a0a0c.
+        canvas.setColor(holy::dimColor(noteStates_[pc] ? 0xFF2D2922u : holy::colors::background, d));
         canvas.roundedRectangle(kx, ky, kw, kh, r);
-        canvas.setColor(holy::dimColor(0xFF1A1A1Du, d));
+        canvas.setColor(holy::dimColor(0xFF151517u, d));
         canvas.roundedRectangleBorder(kx, ky, kw, kh, r, 0.5f);
     }
 }

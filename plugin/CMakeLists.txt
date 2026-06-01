@@ -39,6 +39,13 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(JUCE visage)
 
+# --- Embed UI fonts (Inter + IBM Plex Mono) ---------------------------------
+# Visage's resource embedder (add_embedded_resources) is available once visage is
+# made available. Generates holy::fonts::Inter_*_ttf / IBMPlexMono_Light_ttf as
+# visage::EmbeddedFile, compiled into the binary (no runtime font dependency).
+file(GLOB HOLY_FONT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fonts/*.ttf")
+add_embedded_resources(HolyShifterFonts "holy_fonts.h" "holy::fonts" "${HOLY_FONT_FILES}")
+
 # Plugin sources
 set(PLUGIN_SOURCES
     src/PluginProcessor.cpp
@@ -135,6 +142,7 @@ target_link_libraries(FrequencyShifter
         juce::juce_audio_utils
         juce::juce_dsp
         visage
+        HolyShifterFonts
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

@@ -107,7 +107,7 @@ void HolySlider::draw(visage::Canvas& canvas)
 
     // Value text
     std::string valText = formatValue();
-    auto font = holy::makeFont(11.0f);
+    auto font = holy::makeFont(11.0f, holy::FontWeight::Mono);  // numeric readouts = IBM Plex Mono
     canvas.setColor(holy::dimColor(holy::colors::text, d));
     canvas.text(valText.c_str(), font, visage::Font::kRight,
                 static_cast<int>(sliderW + 4), 0,

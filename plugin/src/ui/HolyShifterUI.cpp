@@ -11,9 +11,9 @@ static const std::vector<std::string> kDivisionLabels = {
 HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     : processor_(processor),
       apvts_(processor.getValueTreeState()),
+      warmToggle_("WARM"),
       presetPrevBtn_("<"),
       presetNextBtn_(">"),
-      warmToggle_("WARM"),
       lfoSyncToggle_("Sync"),
       lfoEnabledToggle_(""),
       delayEnabledToggle_(""),       // label is the strip header
@@ -32,14 +32,14 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     double logMax = std::log(1.0 + maxShift / logScale);
 
     shiftKnob_.setCustomMapping(
-        [logScale, logMax](float knobNorm) -> float {
+        [logMax](float knobNorm) -> float {
             double symNorm = knobNorm * 2.0 - 1.0;
             double sign = symNorm >= 0.0 ? 1.0 : -1.0;
             double absNorm = std::abs(symNorm);
             double absVal = logScale * (std::exp(absNorm * logMax) - 1.0);
             return static_cast<float>(sign * absVal);
         },
-        [logScale, logMax](float knobNorm) -> float {
+        [logMax](float knobNorm) -> float {
             double symNorm = knobNorm * 2.0 - 1.0;
             double sign = symNorm >= 0.0 ? 1.0 : -1.0;
             double absNorm = std::abs(symNorm);
@@ -47,7 +47,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
             double paramValue = sign * absVal;
             return static_cast<float>((paramValue + 20000.0) / 40000.0);
         },
-        [logScale, logMax](float paramNorm) -> float {
+        [logMax](float paramNorm) -> float {
             double paramValue = paramNorm * 40000.0 - 20000.0;
             double sign = paramValue >= 0.0 ? 1.0 : -1.0;
             double absVal = std::abs(paramValue);
@@ -95,8 +95,9 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
         {
             auto pos = presetNameArea_.positionInWindow();
             presetDropdown_.showFor(&processor_,
-                static_cast<int>(pos.x), static_cast<int>(pos.y) + presetNameArea_.height(),
-                presetNameArea_.width());
+                static_cast<int>(pos.x),
+                static_cast<int>(pos.y) + static_cast<int>(presetNameArea_.height()),
+                static_cast<int>(presetNameArea_.width()));
         }
     };
     addChild(&presetNameArea_);
@@ -213,6 +214,9 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     for (auto& name : { "Low Pass", "High Pass", "Band Pass" })
         maskModeCombo_.addItem(name);
     maskModeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_MASK_MODE);
+    // Figma (Mask dropdown only): muted tan #a59777 @ 9px. Waveform combos keep defaults.
+    maskModeCombo_.setTextColor(0xFFA59777u);
+    maskModeCombo_.setTextSize(9.0f);
     addChild(&maskModeCombo_);
 
     maskTransitionSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_MASK_TRANSITION);
@@ -256,7 +260,7 @@ void HolyPresetDropdown::showFor(FrequencyShifterProcessor* proc, int x, int y, 
 
     int dropH = static_cast<int>(presetNames_.size()) * kItemHeight + 4;
     if (parent())
-        dropH = (dropH < parent()->height() - y) ? dropH : parent()->height() - y;
+        dropH = static_cast<int>((dropH < parent()->height() - y) ? dropH : parent()->height() - y);
 
     setBounds(x, y, w, dropH);
     hoveredIndex_ = -1;
@@ -297,14 +301,14 @@ void HolyPresetDropdown::draw(visage::Canvas& canvas)
             canvas.setColor(holy::colors::accentDim);
             canvas.fill(2, itemY, static_cast<int>(w) - 4, kItemHeight);
         }
-        else if (presetNames_[i] == currentName)
+        else if (presetNames_[static_cast<size_t>(i)] == currentName)
         {
             canvas.setColor(0xFF1A1A1Du);
             canvas.fill(2, itemY, static_cast<int>(w) - 4, kItemHeight);
         }
 
         canvas.setColor(holy::colors::text);
-        canvas.text(presetNames_[i].c_str(), font, visage::Font::kLeft,
+        canvas.text(presetNames_[static_cast<size_t>(i)].c_str(), font, visage::Font::kLeft,
                     8, itemY, static_cast<int>(w) - 16, kItemHeight);
     }
 }
@@ -315,7 +319,7 @@ void HolyPresetDropdown::mouseDown(const visage::MouseEvent& e)
     int itemIdx = static_cast<int>((e.position.y - 2) / kItemHeight);
     if (itemIdx >= 0 && itemIdx < static_cast<int>(presetNames_.size()))
     {
-        processor_->getPresetManager().loadPreset(presetNames_[itemIdx]);
+        processor_->getPresetManager().loadPreset(presetNames_[static_cast<size_t>(itemIdx)]);
         if (onPresetChanged_) onPresetChanged_();
     }
     hide();
@@ -412,7 +416,7 @@ void HolyShifterUI::drawStrip(visage::Canvas& canvas, int y, int h,
                    static_cast<float>(y), 1.0f, false);
 
     // Section label (Figma: 8px Inter Medium, tracking 1.6px, gold, at x=14, y=y+6)
-    auto labelFont = holy::makeFont(8.0f);
+    auto labelFont = holy::makeFont(8.0f, holy::FontWeight::Medium);
     canvas.setColor(dimmed ? holy::colors::textMuted : holy::colors::accent);
     canvas.text(label.c_str(), labelFont, visage::Font::kLeft, 14, y + 6, 180, 10);
 }
@@ -449,8 +453,8 @@ static void drawGradientAccentLine(visage::Canvas& canvas, int y, int w, float m
 
 void HolyShifterUI::draw(visage::Canvas& canvas)
 {
-    int w = width();
-    int h = height();
+    int w = static_cast<int>(width());
+    int h = static_cast<int>(height());
 
     // Background (Figma: #0a0a0c)
     canvas.setColor(holy::colors::background);
@@ -460,7 +464,7 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     drawGradientAccentLine(canvas, 0, w, 1.0f);
 
     // Title (Figma: Inter Thin 26px, #e8e4db, tracking 9.1px, at x=27, y=13)
-    auto titleFont = holy::makeFont(26.0f);
+    auto titleFont = holy::makeFont(26.0f, holy::FontWeight::Thin);
     canvas.setColor(holy::colors::text);
     canvas.text("H O L Y   S H I F T E R", titleFont, visage::Font::kLeft, 27, 13, 440, 31);
 
@@ -488,20 +492,24 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     bool isSpectral = (modeSelector_.getSelectedIndex() == 1);
     bool isClassic = !isSpectral;
 
-    // Spectral panel (Figma: x=243, y=137, w=430, h=262, bg #19191d, border #1c1c20)
-    canvas.setColor(holy::dimColor(holy::colors::panelGradTop, isClassic));
-    canvas.roundedRectangle(243.0f, 137.0f, 430.0f, 262.0f, 6.0f);
+    // Spectral panel (Figma: x=245, y=158, w=430, h=240; vertical gradient #19191d→#101013, border #1c1c20)
+    {
+        unsigned int gTop = holy::dimColor(holy::colors::panelGradTop, isClassic);
+        unsigned int gBot = holy::dimColor(holy::colors::panelGradBot, isClassic);
+        canvas.setColor(visage::Brush::vertical(visage::Color(gTop), visage::Color(gBot)));
+        canvas.roundedRectangle(245.0f, 158.0f, 430.0f, 240.0f, 6.0f);
+    }
     // Border
     canvas.setColor(holy::dimColor(holy::colors::panelBorder, isClassic));
-    canvas.roundedRectangleBorder(243.0f, 137.0f, 430.0f, 262.0f, 6.0f, 1.0f);
-    // Top gold accent line inside panel (Figma: 2px, subtle gold gradient rgba(201,169,110,0.12))
+    canvas.roundedRectangleBorder(245.0f, 158.0f, 430.0f, 240.0f, 6.0f, 1.0f);
+    // Top gold accent hairline inside panel (Figma: 2px, subtle gold rgba(201,169,110,0.12))
     canvas.setColor(holy::dimColor(0x1FC9A96Eu, isClassic));
-    canvas.fill(244, 137, 428, 2);
+    canvas.fill(246, 158, 428, 2);
 
-    // "SPECTRAL CONTROLS" header (Figma: 8px, tracking 1.6px, gold, at panel-rel 13,9)
-    auto panelHeaderFont = holy::makeFont(8.0f);
+    // "SPECTRAL CONTROLS" header (Figma: 8px, tracking 1.6px, gold, at panel-rel 13,9 → abs 258,167)
+    auto panelHeaderFont = holy::makeFont(8.0f, holy::FontWeight::Medium);
     canvas.setColor(holy::dimColor(holy::colors::accent, isClassic));
-    canvas.text("SPECTRAL CONTROLS", panelHeaderFont, visage::Font::kLeft, 256, 146, 150, 10);
+    canvas.text("SPECTRAL CONTROLS", panelHeaderFont, visage::Font::kLeft, 258, 167, 150, 10);
 
     // === Strip sections — exact Figma positions ===
     drawStrip(canvas, 405, 110, "FREQ MODULATION");
@@ -519,29 +527,24 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.setColor(holy::colors::stripBorder);
     canvas.segment(0.0f, 761.0f, static_cast<float>(w), 761.0f, 1.0f, false);
     {
-        auto maskLabelFont = holy::makeFont(8.0f);
+        auto maskLabelFont = holy::makeFont(8.0f, holy::FontWeight::Medium);
         canvas.setColor(isClassic ? holy::colors::textMuted : holy::colors::accent);
         canvas.text("MASK", maskLabelFont, visage::Font::kLeft, 14, 767, 50, 10);
     }
 
-    // Mix footer (Figma: gradient #0f0f11→#0a0a0c, h=72)
-    canvas.setColor(holy::colors::mixGradTop);
-    canvas.fill(0, 851, w, 36);
-    canvas.setColor(holy::colors::background);
-    canvas.fill(0, 887, w, 36);
+    // Mix footer (Figma: vertical gradient #0f0f11→#0a0a0c, h=72; no section label in the design)
+    canvas.setColor(visage::Brush::vertical(visage::Color(holy::colors::mixGradTop),
+                                            visage::Color(holy::colors::background)));
+    canvas.fill(0, 851, w, 72);
     canvas.setColor(holy::colors::stripBorder);
     canvas.segment(0.0f, 851.0f, static_cast<float>(w), 851.0f, 1.0f, false);
-    {
-        auto mixLabelFont = holy::makeFont(8.0f);
-        canvas.setColor(holy::colors::accent);
-        canvas.text("MIX", mixLabelFont, visage::Font::kLeft, 14, 857, 50, 10);
-    }
 
-    // Separator gradient lines (Figma: 2px gold gradient at y=515 and y=759)
-    drawGradientAccentLine(canvas, 515, w, 0.5f);
-    drawGradientAccentLine(canvas, 516, w, 0.3f);
-    drawGradientAccentLine(canvas, 759, w, 0.5f);
-    drawGradientAccentLine(canvas, 760, w, 0.3f);
+    // Section divider bars — Figma nodes 32:15 (y=516) and 32:18 (y=760): SOLID 2px #48402F,
+    // full width, no fade. These clearly separate Freq-Mod↔Delay and Delay-Mod↔Mask.
+    // (Previously drawn as a center-fading gradient accent that didn't read as a divider.)
+    canvas.setColor(0xFF48402Fu);
+    canvas.fill(0, 516, w, 2);
+    canvas.fill(0, 760, w, 2);
 
     // Bottom accent gradient line (Figma: y=926, 1px, 50% intensity)
     drawGradientAccentLine(canvas, 926, w, 0.5f);
@@ -551,20 +554,20 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
 
     // Spectral panel labels (panel at 243, 137; all dimmed in Classic mode)
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
-    canvas.text("Quantize",   labelFont, visage::Font::kRight, 252, 216, 62, 20);
-    canvas.text("Envelope",   labelFont, visage::Font::kRight, 252, 246, 62, 20);
-    canvas.text("Transients", labelFont, visage::Font::kRight, 252, 276, 62, 20);
-    canvas.text("Sens",       labelFont, visage::Font::kRight, 441, 296, 30, 20);
+    canvas.text("Quantize",   labelFont, visage::Font::kRight, 254, 237, 62, 20);
+    canvas.text("Envelope",   labelFont, visage::Font::kRight, 254, 267, 62, 20);
+    canvas.text("Transients", labelFont, visage::Font::kRight, 254, 297, 62, 20);
+    canvas.text("Sens",       labelFont, visage::Font::kRight, 443, 317, 30, 20);
 
-    // "Smear" label (Figma: panel-rel x=30, y=224 → absolute 273, 361)
+    // "Smear" label (Figma: panel-rel x=30, y=200 → absolute 275, 382)
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
-    canvas.text("Smear", labelFont, visage::Font::kLeft, 273, 361, 40, 20);
+    canvas.text("Smear", labelFont, visage::Font::kLeft, 270, 358, 40, 20);
 
-    // Smear tooltip (Figma: panel-rel x=142, y=238 → absolute 385, 375; Inter Light 8px)
-    auto tooltipFont = holy::makeFont(8.0f);
+    // Smear tooltip (Figma: panel-rel x=142, y=219 → absolute 387, 396; Inter Light 8px)
+    auto tooltipFont = holy::makeFont(8.0f, holy::FontWeight::Light);
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
     canvas.text("(Adjust with Care when track playing)", tooltipFont, visage::Font::kLeft,
-                385, 375, 250, 10);
+                387, 377, 250, 10);
 
     // Freq Modulation labels (strip at y=405)
     canvas.setColor(holy::colors::textSec);
@@ -608,16 +611,16 @@ void HolyShifterUI::resized()
     // === Shift Knob (Figma: 27, 168, 210, 218) ===
     shiftKnob_.setBounds(27, 168, 210, 218);
 
-    // === Spectral Panel (Figma: panel at 243, 137, 430, 262) ===
-    int px = 243;
-    int py = 137;
+    // === Spectral Panel (Figma: panel at 245, 158, 430, 240) ===
+    int px = 245;
+    int py = 158;
 
     pianoKeyboard_.setBounds(px + 13, py + 27, 400, 42);       // Figma: (13, 27, 400, 42)
     quantizeSlider_.setBounds(px + 77, py + 79, 334, 20);      // track at 77, value text extends to ~411
     preserveSlider_.setBounds(px + 77, py + 109, 334, 20);     // Envelope row
     transientsSlider_.setBounds(px + 77, py + 139, 334, 20);   // Transients row
     sensitivitySlider_.setBounds(px + 234, py + 159, 177, 20); // Sens track at 234, w=120
-    smearSlider_.setBounds(px + 77, py + 221, 343, 20);        // Smear track at 77, w=286
+    smearSlider_.setBounds(px + 77, py + 200, 343, 20);        // Smear track at 77, w=286 (reflowed up after panel resize)
 
     // DepthMode combo — hidden
     lfoDepthModeCombo_.setBounds(0, 0, 0, 0);
@@ -629,12 +632,12 @@ void HolyShifterUI::resized()
     lfoRateSlider_.setBounds(75, fmY + 57, 356, 22);           // Rate: track at 75, w=290 (dual-purpose)
     lfoSyncToggle_.setBounds(451, fmY + 57, 75, 24);           // Sync toggle
     lfoShapeCombo_.setBounds(579, fmY + 58, 76, 22);           // Shape combo on Rate row (Figma: x=579)
-    lfoEnabledToggle_.setBounds(160, fmY + 6, 30, 15);         // R3: enable pill (aligned column)
+    lfoEnabledToggle_.setBounds(119, fmY + 6, 30, 15);         // Figma x119 — after "FREQ MODULATION"
 
     // === Delay (Figma: strip at y=517, h=134) ===
     int dlY = 517;
 
-    delayEnabledToggle_.setBounds(160, dlY + 6, 30, 15);       // Enable pill (aligned column)
+    delayEnabledToggle_.setBounds(55, dlY + 6, 30, 15);        // Figma x55 — after "DELAY"
     delayTimeSlider_.setBounds(158, dlY + 26, 346, 22);        // Time: track at 158, w=280
     delaySyncToggle_.setBounds(523, dlY + 26, 80, 24);         // Sync toggle
     delayFeedbackSlider_.setBounds(94, dlY + 60, 238, 22);     // Feedback: track at 94, w=200
@@ -649,12 +652,12 @@ void HolyShifterUI::resized()
     dlyLfoRateSlider_.setBounds(76, dmY + 58, 356, 22);        // Rate: track at 76, w=290 (dual-purpose)
     dlyLfoSyncToggle_.setBounds(452, dmY + 58, 75, 24);        // Sync
     dlyLfoShapeCombo_.setBounds(584, dmY + 56, 76, 22);        // Shape (Figma: x=584)
-    dlyLfoEnabledToggle_.setBounds(160, dmY + 6, 30, 15);      // R3: enable pill (aligned column)
+    dlyLfoEnabledToggle_.setBounds(120, dmY + 6, 30, 15);      // Figma x120 — after "DELAY MODULATION"
 
     // === Mask (Figma: strip at y=761, h=90) ===
     int mkY = 761;
 
-    maskEnabledToggle_.setBounds(160, mkY + 6, 30, 15);        // Enable pill (aligned column)
+    maskEnabledToggle_.setBounds(56, mkY + 6, 30, 15);         // Figma x56 — tucked next to "MASK"
     maskModeCombo_.setBounds(88, mkY + 23, 90, 22);            // Band Pass combo
     maskTransitionSlider_.setBounds(284, mkY + 26, 191, 22);   // Transition slider
     maskLowFreqSlider_.setBounds(62, mkY + 58, 301, 22);       // Low freq slider
