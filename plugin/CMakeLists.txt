@@ -28,6 +28,14 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
+# Local patch carried against the pinned Visage: its embedded (plugin) WindowMac constructor never
+# calls setDpiScale(), unlike the top-level one — so AU hosts that attach the editor view late
+# (e.g. Ableton) initialise the canvas at dpiScale 1.0 while child frames lay out at the native 2×,
+# scrambling the UI. VST3/Standalone are unaffected. Applied idempotently at populate time so clean
+# builds re-apply it automatically and re-running on an already-patched tree is a no-op.
+# Re-verify this patch whenever the GIT_TAG SHA below is bumped.
+set(VISAGE_AU_HIDPI_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/visage-au-hidpi.patch")
+
 FetchContent_Declare(
     visage
     GIT_REPOSITORY https://github.com/VitalAudio/visage.git
@@ -35,6 +43,7 @@ FetchContent_Declare(
     # Bump this SHA deliberately after testing against the new revision.
     GIT_TAG b0b2ee89abb3f1173dad4d80460197eb96afa724
     GIT_SHALLOW FALSE  # SHA pins require full history (GIT_SHALLOW only works with tags/branches)
+    PATCH_COMMAND sh -c "git apply --reverse --check '${VISAGE_AU_HIDPI_PATCH}' 2>/dev/null && echo 'visage AU HiDPI patch: already applied' || git apply --verbose '${VISAGE_AU_HIDPI_PATCH}'"
 )
 
 FetchContent_MakeAvailable(JUCE visage)

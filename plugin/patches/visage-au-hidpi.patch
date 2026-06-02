@@ -1,0 +1,15 @@
+diff --git a/visage_windowing/macos/windowing_macos.mm b/visage_windowing/macos/windowing_macos.mm
+index e90bf06..a1bfba7 100644
+--- a/visage_windowing/macos/windowing_macos.mm
++++ b/visage_windowing/macos/windowing_macos.mm
+@@ -872,6 +872,10 @@ namespace visage {
+ 
+   WindowMac::WindowMac(int width, int height, float scale, void* parent_handle) :
+       Window(width, height) {
++    setDpiScale(scale);  // Holy Shifter AU HiDPI fix: embedded ctor must adopt the host backing
++                         // scale up front (upstream omits this, unlike the top-level ctor), so AU
++                         // hosts that attach the view late do not strand the canvas at 1x while
++                         // child frames lay out at native 2x.
+     parent_view_ = (__bridge NSView*)parent_handle;
+     CGRect view_frame = CGRectMake(0.0f, 0.0f, width / scale, height / scale);
+ 
