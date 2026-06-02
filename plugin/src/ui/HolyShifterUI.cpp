@@ -98,6 +98,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     presetPrevBtn_.onToggle() = [this](visage::Button*, bool) {
         processor_.getPresetManager().loadPreviousPreset();
         currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
+        updatePresetStrip();
         redraw();
     };
     addChild(&presetPrevBtn_);
@@ -106,6 +107,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     presetNextBtn_.onToggle() = [this](visage::Button*, bool) {
         processor_.getPresetManager().loadNextPreset();
         currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
+        updatePresetStrip();
         redraw();
     };
     addChild(&presetNextBtn_);
@@ -128,7 +130,35 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
 
     presetDropdown_.onPresetChanged_ = [this]() {
         currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
+        updatePresetStrip();
         redraw();
+    };
+
+    // SAVE — name the current state and write it as a user preset.
+    presetSaveBtn_.configure("SAVE", HolyTextButton::Style::Primary);
+    presetSaveBtn_.onClick = [this]() {
+        auto& pm = processor_.getPresetManager();
+        std::string base = currentPresetName_.empty() ? std::string("Untitled") : currentPresetName_;
+        if (pm.isFactoryPreset(juce::String(base)))
+            base += " Custom";   // factory names are read-only; suggest a saveable variant
+        presetModal_.openSave(&processor_, base);
+    };
+    addChild(&presetSaveBtn_);
+
+    // DELETE — remove the current user preset (disabled for factory/empty).
+    presetDeleteBtn_.configure("DELETE", HolyTextButton::Style::Outline);
+    presetDeleteBtn_.onClick = [this]() {
+        if (currentPresetName_.empty()
+            || processor_.getPresetManager().isFactoryPreset(juce::String(currentPresetName_)))
+            return;
+        presetModal_.openConfirmDelete(&processor_, currentPresetName_);
+    };
+    addChild(&presetDeleteBtn_);
+
+    presetModal_.onChanged = [this]() {
+        currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
+        updatePresetStrip();
+        redrawAll();
     };
 
     // === Spectral panel controls ===
@@ -263,6 +293,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     // Shared dropdown overlay — must be added LAST for z-ordering
     addChild(&dropdownOverlay_);
     addChild(&presetDropdown_);
+    addChild(&presetModal_);   // above the dropdowns
     HolyComboBox::setSharedDropdown(&dropdownOverlay_);
 
     updateControlsForMode();
@@ -270,6 +301,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     updateLfoSyncUI();
     updateDlyLfoSyncUI();
     updateLfoEnableUI();
+    updatePresetStrip();
 }
 
 // === HolyPresetDropdown ===
@@ -393,9 +425,18 @@ void HolyShifterUI::updateLfoEnableUI()
     dlyLfoSyncToggle_.setDimmed(!dlyOn);
 }
 
+void HolyShifterUI::updatePresetStrip()
+{
+    // Factory presets are read-only, so DELETE only applies to user presets.
+    bool deletable = !currentPresetName_.empty()
+                     && !processor_.getPresetManager().isFactoryPreset(juce::String(currentPresetName_));
+    presetDeleteBtn_.setEnabledState(deletable);
+}
+
 void HolyShifterUI::pollState()
 {
     currentPresetName_ = processor_.getPresetManager().getCurrentPresetName().toStdString();
+    updatePresetStrip();
     updateControlsForMode();
     updateDelaySyncUI();
     updateLfoSyncUI();
@@ -641,6 +682,13 @@ void HolyShifterUI::resized()
     presetNextBtn_.setBounds(60, 71, 20, 20);
     presetNameArea_.setBounds(91, 69, 300, 20);
 
+    // SAVE / DELETE sit to the right of the name, clear of the logo (x=609).
+    presetSaveBtn_.setBounds(452, 70, 58, 22);
+    presetDeleteBtn_.setBounds(518, 70, 72, 22);
+
+    // Modal overlay covers the whole window (hidden until opened).
+    presetModal_.setBounds(0, 0, kBaseW, kBaseH);
+
     // === Mode Selector row (Figma: frame y=101, h=36) ===
     modeSelector_.setBounds(28, 106, 220, 26);   // Figma: (28, 106, 220, 26)
     warmToggle_.setBounds(591, 107, 80, 24);      // Figma: (591, 107, 80, 24)
@@ -702,4 +750,309 @@ void HolyShifterUI::resized()
 
     // === Mix Footer (Figma: strip at y=851, h=72) ===
     dryWetSlider_.setBounds(108, 851 + 28, 545, 22);           // DRY/WET: track at 108, w=494
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HolyTextField — themed single-line text input for the preset name
+// ═════════════════════════════════════════════════════════════════════════════
+
+void HolyTextField::appendFiltered(const std::string& text)
+{
+    bool changed = false;
+    for (char c : text)
+    {
+        unsigned char uc = static_cast<unsigned char>(c);
+        if (uc < 0x20 || uc == 0x7F)        // drop control chars (newline, tab, …)
+            continue;
+        if (static_cast<int>(value_.size()) >= maxLen_)
+            break;
+        value_.push_back(c);
+        changed = true;
+    }
+    if (changed)
+        redraw();
+}
+
+bool HolyTextField::keyPress(const visage::KeyEvent& e)
+{
+    using K = visage::KeyCode;
+    K k = e.keyCode();
+
+    if (k == K::Backspace || k == K::Delete || k == K::KPBackspace)
+    {
+        if (!value_.empty())
+        {
+            value_.pop_back();   // also drop any trailing UTF-8 continuation bytes
+            while (!value_.empty() && (static_cast<unsigned char>(value_.back()) & 0xC0) == 0x80)
+                value_.pop_back();
+            redraw();
+        }
+        return true;
+    }
+    if (k == K::Return || k == K::Return2 || k == K::KPEnter)
+    {
+        if (onSubmit) onSubmit();
+        return true;
+    }
+    if (k == K::Escape)
+    {
+        if (onCancel) onCancel();
+        return true;
+    }
+    // Cmd/Ctrl+V paste — while a modifier is held no textInput is delivered.
+    if (e.isMainModifier() && (static_cast<int>(k) == 'v' || static_cast<int>(k) == 'V'))
+    {
+        appendFiltered(readClipboardText());
+        return true;
+    }
+    return false;   // ordinary characters arrive via textInput()
+}
+
+void HolyTextField::draw(visage::Canvas& canvas)
+{
+    float w = static_cast<float>(width());
+    float h = static_cast<float>(height());
+
+    canvas.setColor(holy::colors::background);
+    canvas.roundedRectangle(0, 0, w, h, 3.0f);
+    canvas.setColor(focused_ ? holy::colors::accent : holy::colors::border);
+    canvas.roundedRectangleBorder(0, 0, w, h, 3.0f, 1.0f);
+
+    auto font = holy::makeFont(13.0f);
+    bool empty = value_.empty();
+    const std::string& shown = empty ? placeholder_ : value_;
+    canvas.setColor(empty ? holy::colors::textMuted : holy::colors::text);
+    canvas.text(shown.c_str(), font, visage::Font::kLeft,
+                8, 0, static_cast<int>(w) - 16, static_cast<int>(h));
+
+    // Caret just past the text (cosmetic — ASCII width is fine for preset names).
+    if (focused_)
+    {
+        float cx = 9.0f;
+        if (!empty)
+        {
+            std::u32string wide;
+            wide.reserve(value_.size());
+            for (char c : value_)
+                wide.push_back(static_cast<char32_t>(static_cast<unsigned char>(c)));
+            cx = 8.0f + font.stringWidth(wide) + 1.0f;
+        }
+        if (cx < w - 4.0f)
+        {
+            canvas.setColor(holy::colors::accent);
+            canvas.fill(static_cast<int>(cx), static_cast<int>(h * 0.5f - 7.0f), 1, 14);
+        }
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HolyTextButton — themed push button (Primary = gold fill, Outline = bordered)
+// ═════════════════════════════════════════════════════════════════════════════
+
+void HolyTextButton::draw(visage::Canvas& canvas)
+{
+    float w = static_cast<float>(width());
+    float h = static_cast<float>(height());
+    bool dim = !enabled_;
+    auto font = holy::makeFont(10.0f, holy::FontWeight::Medium);
+
+    if (style_ == Style::Primary)
+    {
+        unsigned int bg = (hovered_ && enabled_) ? 0xFFD9BC82u : holy::colors::accent;
+        canvas.setColor(holy::dimColor(bg, dim));
+        canvas.roundedRectangle(0, 0, w, h, 4.0f);
+        canvas.setColor(holy::dimColor(holy::colors::background, dim));   // dark text on gold
+        canvas.text(text_.c_str(), font, visage::Font::kCenter,
+                    0, 0, static_cast<int>(w), static_cast<int>(h));
+    }
+    else
+    {
+        canvas.setColor(holy::dimColor(holy::colors::raised, dim));
+        canvas.roundedRectangle(0, 0, w, h, 4.0f);
+        unsigned int border = (hovered_ && enabled_) ? holy::colors::accent : holy::colors::border;
+        canvas.setColor(holy::dimColor(border, dim));
+        canvas.roundedRectangleBorder(0, 0, w, h, 4.0f, 1.0f);
+        unsigned int tc = (hovered_ && enabled_) ? holy::colors::accent : holy::colors::textSec;
+        canvas.setColor(holy::dimColor(tc, dim));
+        canvas.text(text_.c_str(), font, visage::Font::kCenter,
+                    0, 0, static_cast<int>(w), static_cast<int>(h));
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HolyModalDialog — centred Save / Confirm-Delete overlay
+// ═════════════════════════════════════════════════════════════════════════════
+
+HolyModalDialog::HolyModalDialog()
+{
+    setVisible(false);
+
+    nameField_.setMaxLength(40);
+    nameField_.onSubmit = [this]() { if (mode_ == Mode::Save) commitSave(); };
+    nameField_.onCancel = [this]() { close(); };
+    addChild(&nameField_);
+
+    primaryBtn_.configure("Save", HolyTextButton::Style::Primary);
+    primaryBtn_.onClick = [this]() { if (mode_ == Mode::Save) commitSave(); else commitDelete(); };
+    addChild(&primaryBtn_);
+
+    cancelBtn_.configure("Cancel", HolyTextButton::Style::Outline);
+    cancelBtn_.onClick = [this]() { close(); };
+    addChild(&cancelBtn_);
+}
+
+void HolyModalDialog::layoutPanel()
+{
+    int px = (static_cast<int>(width()) - kPanelW) / 2;
+    int py = (static_cast<int>(height()) - kPanelH) / 2;
+
+    nameField_.setBounds(px + 20, py + 60, kPanelW - 40, 30);
+
+    const int bw = 74, bh = 28, gap = 8;
+    primaryBtn_.setBounds(px + kPanelW - 20 - bw, py + kPanelH - 46, bw, bh);
+    cancelBtn_.setBounds(px + kPanelW - 20 - bw - gap - bw, py + kPanelH - 46, bw, bh);
+}
+
+void HolyModalDialog::openSave(FrequencyShifterProcessor* proc, const std::string& suggestedName)
+{
+    mode_ = Mode::Save;
+    processor_ = proc;
+    suggested_ = suggestedName;
+    status_.clear();
+
+    nameField_.setText("");
+    nameField_.setPlaceholder(suggestedName);
+    nameField_.setVisible(true);
+    primaryBtn_.setText("Save");
+
+    if (auto* par = parent())
+        setBounds(0, 0, par->width(), par->height());
+    setVisible(true);
+    layoutPanel();
+    nameField_.requestKeyboardFocus();
+    redraw();
+}
+
+void HolyModalDialog::openConfirmDelete(FrequencyShifterProcessor* proc, const std::string& presetName)
+{
+    mode_ = Mode::ConfirmDelete;
+    processor_ = proc;
+    targetName_ = presetName;
+    status_.clear();
+
+    nameField_.setVisible(false);
+    primaryBtn_.setText("Delete");
+
+    if (auto* par = parent())
+        setBounds(0, 0, par->width(), par->height());
+    setVisible(true);
+    layoutPanel();
+    redraw();
+}
+
+void HolyModalDialog::close()
+{
+    setVisible(false);
+    processor_ = nullptr;
+    if (parent())
+        parent()->redraw();
+}
+
+void HolyModalDialog::commitSave()
+{
+    if (!processor_)
+        return;
+
+    juce::String name = juce::String(nameField_.getText()).trim();
+    if (name.isEmpty())
+        name = juce::String(suggested_).trim();
+
+    juce::String legal = juce::File::createLegalFileName(name).trim();
+    if (legal.isEmpty())
+    {
+        status_ = "Please enter a name";
+        redraw();
+        return;
+    }
+    if (processor_->getPresetManager().isFactoryPreset(legal))
+    {
+        status_ = "\"" + legal.toStdString() + "\" is a factory preset - choose another name";
+        redraw();
+        return;
+    }
+
+    processor_->getPresetManager().savePreset(legal);
+    if (onChanged) onChanged();
+    close();
+}
+
+void HolyModalDialog::commitDelete()
+{
+    if (processor_)
+        processor_->getPresetManager().deletePreset(juce::String(targetName_));
+    if (onChanged) onChanged();
+    close();
+}
+
+void HolyModalDialog::mouseDown(const visage::MouseEvent& e)
+{
+    // The field and buttons handle their own clicks; this fires for the scrim or the
+    // bare panel. Outside the panel = cancel; on the panel itself = swallow.
+    int px = (static_cast<int>(width()) - kPanelW) / 2;
+    int py = (static_cast<int>(height()) - kPanelH) / 2;
+    bool insidePanel = e.position.x >= px && e.position.x <= px + kPanelW
+                    && e.position.y >= py && e.position.y <= py + kPanelH;
+    if (!insidePanel)
+        close();
+}
+
+void HolyModalDialog::draw(visage::Canvas& canvas)
+{
+    int w = static_cast<int>(width());
+    int h = static_cast<int>(height());
+
+    // Scrim over the whole UI (children — panel contents — paint on top of this).
+    canvas.setColor(0xC8070709u);
+    canvas.fill(0, 0, w, h);
+
+    int px = (w - kPanelW) / 2;
+    int py = (h - kPanelH) / 2;
+    float fpx = static_cast<float>(px), fpy = static_cast<float>(py);
+    float fpw = static_cast<float>(kPanelW), fph = static_cast<float>(kPanelH);
+
+    canvas.setColor(holy::colors::raised);
+    canvas.roundedRectangle(fpx, fpy, fpw, fph, 6.0f);
+    canvas.setColor(holy::colors::panelBorder);
+    canvas.roundedRectangleBorder(fpx, fpy, fpw, fph, 6.0f, 1.0f);
+    canvas.setColor(0x1FC9A96Eu);   // top gold hairline (matches the Spectral panel)
+    canvas.fill(px + 1, py, kPanelW - 2, 2);
+
+    auto titleFont = holy::makeFont(11.0f, holy::FontWeight::Medium);
+    canvas.setColor(holy::colors::accent);
+    canvas.text(mode_ == Mode::Save ? "SAVE PRESET" : "DELETE PRESET",
+                titleFont, visage::Font::kLeft, px + 20, py + 18, kPanelW - 40, 14);
+
+    auto bodyFont = holy::makeFont(11.0f);
+    auto smallFont = holy::makeFont(9.0f);
+
+    if (mode_ == Mode::Save)
+    {
+        canvas.setColor(holy::colors::textSec);
+        canvas.text("Name", bodyFont, visage::Font::kLeft, px + 20, py + 44, 200, 12);
+        if (!status_.empty())
+        {
+            canvas.setColor(0xFFCF8E6Cu);   // soft terracotta warning
+            canvas.text(status_.c_str(), smallFont, visage::Font::kLeft,
+                        px + 20, py + 94, kPanelW - 40, 12);
+        }
+    }
+    else
+    {
+        canvas.setColor(holy::colors::text);
+        std::string msg = "Delete \"" + targetName_ + "\"?";
+        canvas.text(msg.c_str(), bodyFont, visage::Font::kLeft, px + 20, py + 56, kPanelW - 40, 14);
+        canvas.setColor(holy::colors::textSec);
+        canvas.text("This deletes the saved preset file.", smallFont, visage::Font::kLeft,
+                    px + 20, py + 78, kPanelW - 40, 12);
+    }
 }
