@@ -193,7 +193,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     addChild(&lfoDepthModeCombo_);
 
     // Shape combo — on the Depth row
-    for (auto& name : { "Sine", "Triangle", "Saw", "Inv Saw", "Random" })
+    for (auto& name : { "Sine", "Triangle", "Saw", "Inv Saw", "Random", "Square" })
         lfoShapeCombo_.addItem(name);
     lfoShapeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_SHAPE);
     addChild(&lfoShapeCombo_);
@@ -253,7 +253,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     dlyLfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_SYNC);
     addChild(&dlyLfoSyncToggle_);
 
-    for (auto& name : { "Sine", "Triangle", "Saw", "Inv Saw", "Random" })
+    for (auto& name : { "Sine", "Triangle", "Saw", "Inv Saw", "Random", "Square" })
         dlyLfoShapeCombo_.addItem(name);
     dlyLfoShapeCombo_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_SHAPE);
     addChild(&dlyLfoShapeCombo_);

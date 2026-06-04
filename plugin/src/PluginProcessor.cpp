@@ -266,7 +266,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ PARAM_LFO_SHAPE, 1 },
         "LFO Shape",
-        juce::StringArray{ "Sine", "Triangle", "Saw", "Inv Saw", "Random" },
+        juce::StringArray{ "Sine", "Triangle", "Saw", "Inv Saw", "Random", "Square" },
         0));  // Default to Sine
 
     // LFO on/off (R3) — default off, matching the delay's enable
@@ -330,7 +330,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ PARAM_DLY_LFO_SHAPE, 1 },
         "Delay LFO Shape",
-        juce::StringArray{ "Sine", "Triangle", "Saw", "Inv Saw", "Random" },
+        juce::StringArray{ "Sine", "Triangle", "Saw", "Inv Saw", "Random", "Square" },
         0));  // Default to Sine
 
     // Delay LFO on/off (R3) — default off
@@ -1275,6 +1275,9 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                 }
                 lfoValue = lastRandomValue;
                 break;
+            case 5:  // Square
+                lfoValue = (currentPhase < 0.5) ? 1.0f : -1.0f;
+                break;
             default:
                 lfoValue = 0.0f;
         }
@@ -1380,6 +1383,9 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
                     dlyLastRandomValue = (static_cast<float>(std::rand()) / RAND_MAX) * 2.0f - 1.0f;
                 }
                 dlyLfoValue = dlyLastRandomValue;
+                break;
+            case 5:  // Square
+                dlyLfoValue = (currentDlyPhase < 0.5) ? 1.0f : -1.0f;
                 break;
             default:
                 dlyLfoValue = 0.0f;
