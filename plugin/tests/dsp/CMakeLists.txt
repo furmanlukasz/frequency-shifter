@@ -5,6 +5,7 @@ add_executable(dsp_tests
     STFT_test.cpp
     MusicalQuantizer_test.cpp
     Robustness_test.cpp
+    HilbertShifter_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/dsp/STFT.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/dsp/MusicalQuantizer.cpp
 )
