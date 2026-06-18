@@ -142,8 +142,48 @@ jobs:
         path: plugin/artifacts/AU/
         if-no-files-found: warn
 
-  # Windows build is still disabled here pending Visage D3D11 verification.
-  # release.yml does build Windows for tagged releases.
+  # Windows build — verifies the Visage/bgfx D3D11 backend compiles on windows-latest.
+  # VST3 + Standalone build here (AU/AUv3 are macOS-only and skipped by JUCE).
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake
+      working-directory: plugin
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      working-directory: plugin
+      run: cmake --build build --config Release --parallel
+
+    - name: List build artifacts
+      working-directory: plugin
+      shell: pwsh
+      run: |
+        Write-Host "=== VST3 ==="
+        Get-ChildItem -Recurse -Directory -Filter *.vst3 build | ForEach-Object { $_.FullName }
+
+    - name: Package VST3
+      working-directory: plugin
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+        Compress-Archive -Path "build/FrequencyShifter_artefacts/Release/VST3/*" -DestinationPath "artifacts/FrequencyShifter-Windows-VST3.zip" -Force
+
+    - name: Upload VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: FrequencyShifter-Windows-VST3
+        path: plugin/artifacts/*.zip
+        if-no-files-found: warn
 
   # Collect macOS artifacts into a release package for main-branch pushes.
   package:
