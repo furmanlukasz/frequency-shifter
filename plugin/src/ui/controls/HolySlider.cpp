@@ -36,6 +36,16 @@ float HolySlider::getSliderWidth() const
     return std::max(1.0f, static_cast<float>(width()) - kTextWidth);
 }
 
+float HolySlider::paramNormToVisual(float paramNorm) const
+{
+    return (synced_ && syncReversed_) ? (1.0f - paramNorm) : paramNorm;
+}
+
+float HolySlider::visualToParamNorm(float visual) const
+{
+    return (synced_ && syncReversed_) ? (1.0f - visual) : visual;
+}
+
 std::string HolySlider::formatValue() const
 {
     auto* att = activeAttachment();
@@ -44,7 +54,8 @@ std::string HolySlider::formatValue() const
 
     if (synced_ && !syncLabels_.empty())
     {
-        // Show division label
+        // Show division label (always reflects the real param value, regardless of
+        // whether the visual mapping is reversed).
         float norm = att->getNormalisedValue();
         int idx = static_cast<int>(std::round(norm * static_cast<float>(syncLabels_.size() - 1)));
         idx = std::clamp(idx, 0, static_cast<int>(syncLabels_.size()) - 1);
@@ -53,10 +64,33 @@ std::string HolySlider::formatValue() const
 
     float val = att->getValue();
     char buf[32];
+
+    // ms readouts that reach 4 digits don't fit the field — switch to seconds (e.g. "1.27 s").
+    if (secondsAboveMs_ > 0.0f && std::abs(val) >= secondsAboveMs_)
+    {
+        std::snprintf(buf, sizeof(buf), "%.2f", val / 1000.0f);
+        return std::string(buf) + " s";
+    }
+
     if (decimals_ == 0)
+    {
         std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(val));
+    }
     else
-        std::snprintf(buf, sizeof(buf), "%.*f", decimals_, val);
+    {
+        // Adaptive precision: widen decimals for small magnitudes so the log-scaled
+        // bottom end stays legible (≥0.1 → decimals_, <0.1 → 2dp, <0.01 → 3dp).
+        int dec = decimals_;
+        if (adaptiveDecimals_)
+        {
+            float a = std::abs(val);
+            if (a > 0.0f && a < 0.01f)
+                dec = std::max(dec, 3);
+            else if (a < 0.1f)
+                dec = std::max(dec, 2);
+        }
+        std::snprintf(buf, sizeof(buf), "%.*f", dec, val);
+    }
     return std::string(buf) + suffix_;
 }
 
@@ -68,8 +102,9 @@ void HolySlider::draw(visage::Canvas& canvas)
     bool d = dimmed_;
 
     auto* att = activeAttachment();
-    float norm = dragging_ ? dragCurrentNorm_
-                           : (att ? att->getNormalisedValue() : 0.0f);
+    float paramNorm = dragging_ ? dragCurrentNorm_
+                                : (att ? att->getNormalisedValue() : 0.0f);
+    float norm = paramNormToVisual(paramNorm);  // on-screen fill position
 
     float trackH = 1.5f;
     float trackY = h * 0.5f - trackH * 0.5f;
@@ -157,7 +192,7 @@ void HolySlider::mouseDown(const visage::MouseEvent& e)
         rawNorm = static_cast<float>(idx) / static_cast<float>(n - 1);
     }
 
-    dragCurrentNorm_ = rawNorm;
+    dragCurrentNorm_ = visualToParamNorm(rawNorm);  // rawNorm is the on-screen position
     att->setNormalisedValue(dragCurrentNorm_);
     redraw();
 }
@@ -175,6 +210,9 @@ void HolySlider::mouseDrag(const visage::MouseEvent& e)
         // Delta-mode at reduced sensitivity. No sync-snap — fine mode is for free precision.
         float dx = e.position.x - dragStartX_;
         float delta = dx / (sliderW * kFineSensitivityScale);
+        // Reversed sync flips the on-screen direction, so dragging right lowers the param.
+        if (synced_ && syncReversed_)
+            delta = -delta;
         dragCurrentNorm_ = std::clamp(dragStartNorm_ + delta, 0.0f, 1.0f);
         att->setNormalisedValue(dragCurrentNorm_);
         redraw();
@@ -192,7 +230,7 @@ void HolySlider::mouseDrag(const visage::MouseEvent& e)
         rawNorm = static_cast<float>(idx) / static_cast<float>(n - 1);
     }
 
-    dragCurrentNorm_ = rawNorm;
+    dragCurrentNorm_ = visualToParamNorm(rawNorm);  // rawNorm is the on-screen position
     att->setNormalisedValue(dragCurrentNorm_);
     redraw();
 }

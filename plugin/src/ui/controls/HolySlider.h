@@ -18,6 +18,21 @@ public:
     void setSuffix(const std::string& suffix) { suffix_ = suffix; }
     void setDecimals(int d) { decimals_ = d; }
 
+    // Adaptive precision for log-scaled readouts (freq/delay modulation depth & rate):
+    // show extra decimals as the value shrinks below 0.1 (→2dp) and 0.01 (→3dp) so the
+    // small end of the range stays readable instead of collapsing to "0.0".
+    void setAdaptiveDecimals(bool enabled) { adaptiveDecimals_ = enabled; }
+
+    // Reverse the synced (division) mapping so the slow divisions (e.g. 16/1) sit on the
+    // left and the fast ones (1/32) on the right — matching the free-mode rate direction
+    // (low rate left, high rate right). Used by the modulation rate sliders.
+    void setSyncReversed(bool reversed) { syncReversed_ = reversed; }
+
+    // For ms-valued sliders whose readout can reach 4 digits (e.g. delay time): once the
+    // value reaches thresholdMs, render it in seconds instead so it fits the narrow text
+    // field (e.g. "1.27 s" rather than a clipped "1274.3 ms"). 0 disables.
+    void setSecondsAbove(float thresholdMs) { secondsAboveMs_ = thresholdMs; }
+
     // --- Dual-purpose sync slider support ---
     // Sets a secondary attachment used when sync mode is active.
     // The secondary param should be a Choice parameter (e.g. delayDivision).
@@ -36,6 +51,11 @@ private:
     std::string formatValue() const;
     float getSliderWidth() const;
 
+    // Param-normalised value <-> on-screen fill position (0=left,1=right). Identity unless
+    // a reversed sync mapping is active, in which case left/right are flipped.
+    float paramNormToVisual(float paramNorm) const;
+    float visualToParamNorm(float visual) const;
+
     // Returns the active attachment (primary or sync)
     VisageParamAttachment* activeAttachment() const;
 
@@ -43,6 +63,9 @@ private:
     std::vector<std::string> syncLabels_;
     std::string suffix_;
     int decimals_ = 1;
+    bool adaptiveDecimals_ = false;
+    bool syncReversed_ = false;
+    float secondsAboveMs_ = 0.0f;
     bool synced_ = false;
     bool dragging_ = false;
     bool fineMode_ = false;  // Shift held at mouseDown: delta-drag at 10x reduced sensitivity.

@@ -34,7 +34,6 @@ public:
 private:
     float normValueToAngle(float norm) const;
     std::string formatValue(float realValue) const;
-    void updateFromMousePosition(float mx, float my);
 
     bool bipolar_ = true;
     std::string unit_ = "HZ";
@@ -45,11 +44,12 @@ private:
     float dragKnobNorm_ = 0.0f;
     bool dragging_ = false;
 
-    // Shift-for-fine: when shift is held at mouseDown, switch to vertical-delta
-    // drag at reduced sensitivity for the whole gesture (matching DAW knob convention).
+    // Vertical-delta drag (DAW knob convention): dragging up increases the value, down
+    // decreases it. Holding Shift at mouseDown switches to a finer sensitivity for the
+    // whole gesture. The gesture is anchored at mouseDown and applied as a delta.
     bool fineMode_ = false;
-    float fineStartY_ = 0.0f;
-    float fineStartKnobNorm_ = 0.0f;
+    float dragStartY_ = 0.0f;
+    float dragStartKnobNorm_ = 0.0f;
 
     static constexpr float kStartAngle = -2.35619f;  // -3*pi/4
     static constexpr float kEndAngle = 2.35619f;     // 3*pi/4

@@ -1,0 +1,16 @@
+diff --git a/visage_windowing/macos/windowing_macos.mm b/visage_windowing/macos/windowing_macos.mm
+index e90bf06..9c23c56 100644
+--- a/visage_windowing/macos/windowing_macos.mm
++++ b/visage_windowing/macos/windowing_macos.mm
+@@ -527,6 +527,11 @@ - (void)mouseDown:(NSEvent*)event {
+   self.visage_window->handleMouseDown(visage::kMouseButtonLeft, point.x, point.y,
+                                       [self mouseButtonState], [self keyboardModifiers:event]);
+   [self makeKeyWindow];
++  // Plugin embedding: the host may hold the window's first responder, so keyboard events
++  // (e.g. typing a preset name) never reach this view. Reclaim it on click so text input
++  // works reliably. No-op for the standalone app, where this view is already first responder.
++  if (self.window && self.window.firstResponder != self)
++    [self.window makeFirstResponder:self];
+   if (self.visage_window->isDragDropSource()) {
+     visage::File file = self.visage_window->startDragDropSource();
+     NSString* path = [NSString stringWithUTF8String:file.string().c_str()];
