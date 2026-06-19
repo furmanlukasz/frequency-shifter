@@ -1,8 +1,11 @@
 """
-Shared fixtures for Holy Shifter v103 VST3 plugin tests.
+Shared fixtures for Holy Shifter VST3 plugin tests.
 
 All signal fixtures are deterministic (exact math or seeded RNG).
 The plugin fixture loads the actual built VST3 binary.
+
+Set HOLY_SHIFTER_VST3 to point at a specific build (e.g. the fresh CI artifact).
+Without the env var, falls back to the system-installed bundle.
 """
 
 import os
@@ -16,8 +19,9 @@ import numpy as np
 
 SR = 44100  # Default sample rate
 DURATION = 1.0  # Default signal duration in seconds
-VST3_PATH = os.path.expanduser(
-    "~/Library/Audio/Plug-Ins/VST3/Holy Shifter v109.vst3"
+VST3_PATH = os.environ.get(
+    "HOLY_SHIFTER_VST3",
+    os.path.expanduser("~/Library/Audio/Plug-Ins/VST3/Holy Shifter.vst3"),
 )
 
 

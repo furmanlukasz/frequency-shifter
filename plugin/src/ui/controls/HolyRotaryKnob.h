@@ -1,17 +1,14 @@
 #pragma once
 
-#include "../VisageParamAttachment.h"
+#include "VisageControl.h"
 #include "../HolyTheme.h"
-#include <visage_ui/frame.h>
-#include <memory>
+#include <functional>
+#include <string>
 
-class HolyRotaryKnob : public visage::Frame
+class HolyRotaryKnob : public VisageControl
 {
 public:
     HolyRotaryKnob();
-
-    void setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                       const juce::String& paramId);
 
     void draw(visage::Canvas& canvas) override;
     void mouseDown(const visage::MouseEvent& e) override;
@@ -37,9 +34,7 @@ public:
 private:
     float normValueToAngle(float norm) const;
     std::string formatValue(float realValue) const;
-    void updateFromMousePosition(float mx, float my);
 
-    std::unique_ptr<VisageParamAttachment> attachment_;
     bool bipolar_ = true;
     std::string unit_ = "HZ";
     DisplayMapper displayMapper_;
@@ -47,12 +42,19 @@ private:
     InverseMapper fromParamMapper_;
     float dragCurrentNorm_ = 0.0f;
     float dragKnobNorm_ = 0.0f;
-    float lastDragX_ = 0.0f;
     bool dragging_ = false;
+
+    // Vertical-delta drag (DAW knob convention): dragging up increases the value, down
+    // decreases it. Holding Shift at mouseDown switches to a finer sensitivity for the
+    // whole gesture. The gesture is anchored at mouseDown and applied as a delta.
+    bool fineMode_ = false;
+    float dragStartY_ = 0.0f;
+    float dragStartKnobNorm_ = 0.0f;
 
     static constexpr float kStartAngle = -2.35619f;  // -3*pi/4
     static constexpr float kEndAngle = 2.35619f;     // 3*pi/4
     static constexpr float kSensitivity = 300.0f;     // pixels for full range
+    static constexpr float kFineSensitivityScale = 10.0f;  // shift-held drag is 10x finer
 
     VISAGE_LEAK_CHECKER(HolyRotaryKnob)
 };

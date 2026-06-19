@@ -18,12 +18,6 @@ visage::Frame* HolyComboBox::sharedDropdown()
     return sharedDropdown_;
 }
 
-void HolyComboBox::setAttachment(juce::AudioProcessorValueTreeState& apvts,
-                                  const juce::String& paramId)
-{
-    attachment_ = std::make_unique<VisageParamAttachment>(apvts, paramId);
-}
-
 void HolyComboBox::addItem(const std::string& name)
 {
     items_.push_back(name);
@@ -67,27 +61,29 @@ void HolyComboBox::draw(visage::Canvas& canvas)
 {
     float w = static_cast<float>(width());
     float h = static_cast<float>(height());
+    bool d = dimmed_;
 
-    canvas.setColor(holy::colors::raised);
+    canvas.setColor(holy::dimColor(holy::colors::raised, d));
     canvas.roundedRectangle(0, 0, w, h, 3.0f);
-    canvas.setColor(holy::colors::border);
+    canvas.setColor(holy::dimColor(holy::colors::border, d));
     canvas.roundedRectangleBorder(0, 0, w, h, 3.0f, 1.0f);
 
     std::string text = getSelectedText();
-    auto font = holy::makeFont(13.0f);
-    canvas.setColor(holy::colors::text);
+    auto font = holy::makeFont(textSize_ > 0.0f ? textSize_ : 13.0f);
+    unsigned int tc = textColor_ != 0 ? textColor_ : holy::colors::text;
+    canvas.setColor(holy::dimColor(tc, d));
     canvas.text(text.c_str(), font, visage::Font::kLeft,
                 8, 0, static_cast<int>(w - 20), static_cast<int>(h));
 
     float arrowX = w - 14.0f;
     float arrowY = h * 0.5f - 2.0f;
-    canvas.setColor(holy::colors::textMuted);
+    canvas.setColor(holy::dimColor(holy::colors::textMuted, d));
     canvas.triangleDown(arrowX, arrowY, 4.0f);
 }
 
 void HolyComboBox::mouseDown(const visage::MouseEvent&)
 {
-    if (items_.empty())
+    if (items_.empty() || dimmed_)
         return;
 
     auto* overlay = dynamic_cast<HolyDropdownOverlay*>(sharedDropdown_);

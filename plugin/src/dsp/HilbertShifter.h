@@ -100,18 +100,25 @@ public:
         double cosOsc = std::cos(oscPhase);
         double sinOsc = std::sin(oscPhase);
 
-        // Single sideband modulation (double precision)
-        // Convention: Q lags I by 90° → I*cos - Q*sin shifts UP
-        double output;
-        if (shiftHz >= 0.0f)
-            output = I * cosOsc - Q * sinOsc;  // Upper sideband
-        else
-            output = I * cosOsc + Q * sinOsc;  // Lower sideband
+        // Single sideband modulation (double precision).
+        // Convention: Q lags I by 90° → I*cos - Q*sin shifts UP.
+        //
+        // A single formula handles BOTH shift directions because the oscillator
+        // phase is advanced with the SIGNED shift (see below): for a downward
+        // shift the phase runs backwards, and since sin() is odd this is exactly
+        // equivalent to the old "+ Q*sin" lower-sideband branch. Crucially, it
+        // stays continuous when the shift is modulated through 0 Hz. The previous
+        // sign branch + abs() phase flipped the sign of the Q*sin term at the
+        // crossing, producing a step of 2*Q*sin(phase) — an audible click on
+        // sustained material under fast/synced LFO modulation.
+        double output = I * cosOsc - Q * sinOsc;
 
-        // Advance oscillator phase using absolute frequency
-        // Note: Each HilbertShifter instance handles one audio channel,
-        // so we always advance the oscillator regardless of channel parameter
-        double phaseIncrement = 2.0 * M_PI * std::abs(shiftHz) / sampleRate;
+        // Advance oscillator phase using the SIGNED shift frequency, so the
+        // oscillator decelerates to a stop at 0 Hz and reverses direction rather
+        // than jumping sidebands. The phase wrap below already handles the
+        // negative case. (Each HilbertShifter instance handles one audio channel,
+        // so we always advance the oscillator regardless of the channel param.)
+        double phaseIncrement = 2.0 * M_PI * shiftHz / sampleRate;
         oscPhase += phaseIncrement;
 
         // Wrap phase to prevent numerical issues

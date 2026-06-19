@@ -16,6 +16,8 @@ public:
 
     void draw(visage::Canvas& canvas) override;
     void mouseDown(const visage::MouseEvent& e) override;
+    void setDimmed(bool d) { if (dimmed_ != d) { dimmed_ = d; redraw(); } }
+    bool isDimmed() const { return dimmed_; }
 
 private:
     int getKeyAtPoint(float x, float y) const;
@@ -24,6 +26,7 @@ private:
 
     std::array<std::unique_ptr<VisageParamAttachment>, 12> attachments_;
     std::array<bool, 12> noteStates_{};
+    bool dimmed_ = false;
 
     static constexpr int whiteKeyPC_[7] = { 0, 2, 4, 5, 7, 9, 11 };
     static constexpr int blackKeyPC_[5] = { 1, 3, 6, 8, 10 };

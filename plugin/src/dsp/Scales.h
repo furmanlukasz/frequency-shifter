@@ -228,8 +228,22 @@ inline int quantizeToScale(float midiNote, int rootMidi, const std::vector<int>&
     // Calculate which octave we're in
     int octave = static_cast<int>(std::floor((midiNote - static_cast<float>(rootMidi)) / 12.0f));
 
-    // Handle edge case where we wrapped around to lower octave
-    if (relativeNote < static_cast<float>(closestDegree) && closestDegree > 6)
+    // Wrap correction: when the chosen degree's current-octave instance is farther
+    // than the same degree's adjacent-octave instance, shift the octave. The threshold
+    // is half an octave (6 semitones) — beyond that, the adjacent-octave instance wins.
+    //
+    // Two symmetric cases:
+    //   1. relativeNote near top of octave, closestDegree low → wrapped UP, next-octave's
+    //      degree is closer (e.g. relativeNote=10, closestDegree=0 → C5 not C4).
+    //   2. relativeNote near bottom, closestDegree high → wrapped DOWN, previous-octave's
+    //      degree is closer (e.g. relativeNote=2, closestDegree=11 → B3 not B4).
+    //
+    // The previous version only handled case 2 (and over-fired for some non-wrap cases).
+    if (relativeNote - static_cast<float>(closestDegree) > 6.0f)
+    {
+        octave += 1;
+    }
+    else if (static_cast<float>(closestDegree) - relativeNote > 6.0f)
     {
         octave -= 1;
     }

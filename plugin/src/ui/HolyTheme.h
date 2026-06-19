@@ -12,9 +12,14 @@ VISAGE_THEME_COLOR(HolyBorder,        0xFF1E1E22);
 VISAGE_THEME_COLOR(HolyBorderDim,     0xFF151517);
 VISAGE_THEME_COLOR(HolyPanelBg,       0xFF0D0D0F);
 VISAGE_THEME_COLOR(HolyPanelBorder,   0xFF1C1C20);
+VISAGE_THEME_COLOR(HolyModeSelectorBg,0xFF0C0C0E);
+VISAGE_THEME_COLOR(HolyMaskBg,        0xFF19191D);
+VISAGE_THEME_COLOR(HolyPanelGradTop,  0xFF19191D);
+VISAGE_THEME_COLOR(HolyPanelGradBot,  0xFF101013);
+VISAGE_THEME_COLOR(HolyMixGradTop,    0xFF0F0F11);
 
 VISAGE_THEME_COLOR(HolyText,          0xFFE8E4DB);
-VISAGE_THEME_COLOR(HolyTextSec,       0xFF8A857D);
+VISAGE_THEME_COLOR(HolyTextSec,       0xFF8A857D);  // Figma #8a857d (secondary labels) — WCAG AA ~5.4:1 on bg
 VISAGE_THEME_COLOR(HolyTextMuted,     0xFF3E3A34);
 
 VISAGE_THEME_COLOR(HolyAccent,        0xFFC9A96E);
@@ -31,18 +36,34 @@ VISAGE_THEME_VALUE(HolyToggleHeight,  15.0f);
 VISAGE_THEME_VALUE(HolyToggleDotSize, 11.0f);
 
 #include <visage_graphics/font.h>
+#include "embedded/holy_fonts.h"  // Embedded Inter + IBM Plex Mono (see CMakeLists: add_embedded_resources)
 
 namespace holy {
-    // System font path — using SF Pro on macOS, fallback to Arial elsewhere
-    inline visage::Font makeFont(float size)
+    // UI font weights. Inter for everything except numeric readouts (IBM Plex Mono).
+    enum class FontWeight { Thin, Light, Regular, Medium, SemiBold, Mono };
+
+    // Build a Visage font from the embedded TTFs (compiled into the binary — no runtime paths).
+    inline visage::Font makeFont(float size, FontWeight weight = FontWeight::Regular)
     {
-#if __APPLE__
-        return visage::Font(size, "/System/Library/Fonts/Helvetica.ttc");
-#elif _WIN32
-        return visage::Font(size, "C:\\Windows\\Fonts\\arial.ttf");
-#else
-        return visage::Font(size, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-#endif
+        switch (weight)
+        {
+            case FontWeight::Thin:     return visage::Font(size, fonts::Inter_Thin_ttf);
+            case FontWeight::Light:    return visage::Font(size, fonts::Inter_Light_ttf);
+            case FontWeight::Medium:   return visage::Font(size, fonts::Inter_Medium_ttf);
+            case FontWeight::SemiBold: return visage::Font(size, fonts::Inter_SemiBold_ttf);
+            case FontWeight::Mono:     return visage::Font(size, fonts::IBMPlexMono_Light_ttf);
+            case FontWeight::Regular:
+            default:                   return visage::Font(size, fonts::Inter_Regular_ttf);
+        }
+    }
+
+    // Reduce alpha of an ARGB color for dimmed/disabled controls
+    inline constexpr unsigned int dimColor(unsigned int color, bool dimmed)
+    {
+        if (!dimmed) return color;
+        unsigned int alpha = (color >> 24) & 0xFF;
+        alpha = static_cast<unsigned int>(alpha * 0.25f);
+        return (alpha << 24) | (color & 0x00FFFFFFu);
     }
 
     // Raw color values for use in draw() calls that need direct ARGB
@@ -57,10 +78,16 @@ namespace holy {
         static constexpr unsigned int panelBg     = 0xFF0D0D0F;
         static constexpr unsigned int panelBorder = 0xFF1C1C20;
         static constexpr unsigned int text        = 0xFFE8E4DB;
-        static constexpr unsigned int textSec     = 0xFF8A857D;
+        static constexpr unsigned int textSec     = 0xFF8A857D;  // Figma #8a857d — WCAG AA ~5.4:1 on bg
         static constexpr unsigned int textMuted   = 0xFF3E3A34;
         static constexpr unsigned int accent      = 0xFFC9A96E;
         static constexpr unsigned int accentDim   = 0xFF6B5D3D;
+        static constexpr unsigned int accentHalf  = 0x80C9A96E; // 50% alpha accent
         static constexpr unsigned int track       = 0xFF252320;
+        static constexpr unsigned int modeSelectorBg = 0xFF0C0C0E;
+        static constexpr unsigned int maskBg      = 0xFF19191D;
+        static constexpr unsigned int panelGradTop= 0xFF19191D;
+        static constexpr unsigned int panelGradBot= 0xFF101013;
+        static constexpr unsigned int mixGradTop  = 0xFF0F0F11;
     }
 }

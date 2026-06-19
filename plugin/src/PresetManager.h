@@ -14,6 +14,26 @@ class PresetManager
 public:
     explicit PresetManager(juce::AudioProcessorValueTreeState& apvts);
 
+    // -----------------------------------------------------------------------
+    // State versioning
+    //
+    // Saved presets and DAW session blobs carry a `stateVersion` attribute on
+    // the root XML element. Bumping kCurrentStateVersion plus implementing a
+    // migration step is what lets us rename/remove parameters without silently
+    // breaking old presets.
+    //
+    // Versions:
+    //   1 — legacy, pre-versioning. Includes `phaseVocoder` PARAM that no
+    //       longer exists; APVTS ignores it on load.
+    //   2 — current. PhaseVocoder + per-stage FrequencyShifter merged into
+    //       MusicalQuantizer; `phaseVocoder` PARAM removed from layout.
+    // -----------------------------------------------------------------------
+    static constexpr int kCurrentStateVersion = 2;
+
+    static void stampVersion(juce::ValueTree& state);
+    static int  readVersion(const juce::XmlElement& xml);
+    static void migrateState(juce::ValueTree& state, int fromVersion);
+
     // Preset I/O
     void savePreset(const juce::String& name);
     void loadPreset(const juce::String& name);

@@ -17,7 +17,13 @@ public:
     explicit VisageHostEditor(FrequencyShifterProcessor& processor);
     ~VisageHostEditor() override;
 
-    void paint(juce::Graphics&) override {}
+    void paint(juce::Graphics& g) override {
+        if (!windowShown_) {
+            g.fillAll(juce::Colours::black);
+            g.setColour(juce::Colours::white);
+            g.drawText("Initializing UI...", getLocalBounds(), juce::Justification::centred);
+        }
+    }
     void resized() override;
     void parentHierarchyChanged() override;
 
@@ -26,6 +32,7 @@ public:
 
 private:
     void timerCallback() override;
+    void tryCreateVisageWindow();
 
     FrequencyShifterProcessor& processor_;
     std::unique_ptr<HolyShifterUI> ui_;
