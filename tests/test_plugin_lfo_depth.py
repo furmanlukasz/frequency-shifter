@@ -18,11 +18,7 @@ after the initial call.
 import os
 import numpy as np
 import pytest
-from conftest import SR, process_with_params, peak_frequency, rms_db, has_nan_or_inf
-
-VST3_PATH = os.path.expanduser(
-    "~/Library/Audio/Plug-Ins/VST3/Holy Shifter v107.vst3"
-)
+from conftest import SR, process_with_params, peak_frequency, rms_db, has_nan_or_inf, VST3_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +131,12 @@ class TestLfoDepthBasic:
         """With LFO depth=0, output should be a clean shifted tone."""
         out = process_with_params(
             fresh_plugin, sine_440, SR,
-            shift_hz=100.0,
+            shift_hz_hz=100.0,
             lfo_depth=0.0,
-            lfo_rate=2.0,
+            lfo_rate_hz=2.0,
             dry_wet=100.0,
-            processing_mode=1.0,
+            mode="Classic",
+            lfo_enabled=True,
         )
         width = measure_spectral_width(out, 540.0)
         assert width < 30.0, f"Expected narrow spectrum, got width={width:.1f} Hz"
@@ -148,11 +145,12 @@ class TestLfoDepthBasic:
         """With LFO depth > 0, output should show frequency spread."""
         out = process_with_params(
             fresh_plugin, sine_440, SR,
-            shift_hz=100.0,
+            shift_hz_hz=100.0,
             lfo_depth=200.0,
-            lfo_rate=2.0,
+            lfo_rate_hz=2.0,
             dry_wet=100.0,
-            processing_mode=1.0,
+            mode="Classic",
+            lfo_enabled=True,
         )
         width = measure_spectral_width(out, 540.0)
         assert width > 30.0, f"Expected wide spectrum from LFO, got width={width:.1f} Hz"
@@ -162,10 +160,10 @@ class TestLfoDepthBasic:
         signal = generate_sine(440.0, SR * 2)
 
         fresh_plugin.reset()
-        fresh_plugin.shift_hz = 100.0
-        fresh_plugin.lfo_rate = 5.0
+        fresh_plugin.shift_hz_hz = 100.0
+        fresh_plugin.lfo_rate_hz = 5.0
         fresh_plugin.dry_wet = 100.0
-        fresh_plugin.processing_mode = 1.0
+        fresh_plugin.mode = "Spectral"
 
         depths = [0.0, 5000.0, 0.0, 2500.0, 5000.0]
         for depth in depths:
@@ -178,11 +176,12 @@ class TestLfoDepthBasic:
         """Output should stay bounded even with maximum LFO depth."""
         out = process_with_params(
             fresh_plugin, sine_440, SR,
-            shift_hz=100.0,
+            shift_hz_hz=100.0,
             lfo_depth=5000.0,
-            lfo_rate=10.0,
+            lfo_rate_hz=10.0,
             dry_wet=100.0,
-            processing_mode=1.0,
+            mode="Classic",
+            lfo_enabled=True,
         )
         peak = float(np.max(np.abs(out)))
         assert peak < 4.0, f"Output unbounded with max LFO: peak={peak:.2f}"
@@ -212,11 +211,12 @@ class TestLfoDepthStreaming:
         signal = generate_sine(440.0, SR * 3)
 
         # Configure plugin
-        plugin.shift_hz = 0.0  # No base shift, only LFO
+        plugin.shift_hz_hz = 0.0  # No base shift, only LFO
         plugin.lfo_depth = 0.0
-        plugin.lfo_rate = 3.0
+        plugin.lfo_rate_hz = 3.0
         plugin.dry_wet = 100.0
-        plugin.processing_mode = 0.0  # Classic mode (no FFT latency)
+        plugin.mode = "Classic"  # Classic mode (no FFT latency)
+        plugin.lfo_enabled = True
 
         # Stream 0.5s with depth=0 to initialize (uses reset=True on first block)
         init_out = process_streaming(plugin, signal[:BLOCK_SAMPLES], buffer_size=512)
@@ -251,11 +251,12 @@ class TestLfoDepthStreaming:
 
         signal = generate_sine(440.0, SR * 3)
 
-        plugin.shift_hz = 0.0
+        plugin.shift_hz_hz = 0.0
         plugin.lfo_depth = 0.0
-        plugin.lfo_rate = 3.0
+        plugin.lfo_rate_hz = 3.0
         plugin.dry_wet = 100.0
-        plugin.processing_mode = 0.0
+        plugin.mode = "Classic"
+        plugin.lfo_enabled = True
 
         # Initialize
         process_streaming(plugin, signal[:BLOCK_SAMPLES], buffer_size=2048)
@@ -290,11 +291,12 @@ class TestLfoDepthStreaming:
         bs = 1024
 
         # Start with depth=300 and stream 1.5s to let it fully settle
-        plugin.shift_hz = 0.0
+        plugin.shift_hz_hz = 0.0
         plugin.lfo_depth = 300.0
-        plugin.lfo_rate = 3.0
+        plugin.lfo_rate_hz = 3.0
         plugin.dry_wet = 100.0
-        plugin.processing_mode = 0.0
+        plugin.mode = "Classic"
+        plugin.lfo_enabled = True
 
         process_streaming(plugin, signal[:int(SR * 1.5)], buffer_size=bs)
 
@@ -327,10 +329,11 @@ class TestLfoDepthStreaming:
         signal = generate_sine(440.0, SR * 5)
         bs = 1024
 
-        plugin.shift_hz = 0.0
-        plugin.lfo_rate = 3.0
+        plugin.shift_hz_hz = 0.0
+        plugin.lfo_rate_hz = 3.0
         plugin.dry_wet = 100.0
-        plugin.processing_mode = 0.0
+        plugin.mode = "Classic"
+        plugin.lfo_enabled = True
 
         # Initialize
         plugin.lfo_depth = 0.0
@@ -384,11 +387,12 @@ class TestLfoDepthBlockSizeConsistency:
             plugin = load_fresh_plugin()
             signal = generate_sine(440.0, SR * 2)
 
-            plugin.shift_hz = 0.0
+            plugin.shift_hz_hz = 0.0
             plugin.lfo_depth = 300.0
-            plugin.lfo_rate = 3.0
+            plugin.lfo_rate_hz = 3.0
             plugin.dry_wet = 100.0
-            plugin.processing_mode = 0.0
+            plugin.mode = "Classic"
+            plugin.lfo_enabled = True
 
             out = process_streaming(plugin, signal, buffer_size=bs)
             # Measure last 0.5s (after any settling)
@@ -412,11 +416,12 @@ class TestLfoDepthBlockSizeConsistency:
             plugin = load_fresh_plugin()
             signal = generate_sine(440.0, SR * 3)
 
-            plugin.shift_hz = 0.0
+            plugin.shift_hz_hz = 0.0
             plugin.lfo_depth = 0.0
-            plugin.lfo_rate = 3.0
+            plugin.lfo_rate_hz = 3.0
             plugin.dry_wet = 100.0
-            plugin.processing_mode = 0.0
+            plugin.mode = "Classic"
+            plugin.lfo_enabled = True
 
             # Initialize at depth=0
             process_streaming(plugin, signal[:BLOCK_SAMPLES], buffer_size=bs)
@@ -455,10 +460,11 @@ class TestLfoDepthNoArtifacts:
         signal = generate_sine(440.0, SR * 3)
         bs = 512
 
-        plugin.shift_hz = 50.0
-        plugin.lfo_rate = 1.0
+        plugin.shift_hz_hz = 50.0
+        plugin.lfo_rate_hz = 1.0
         plugin.dry_wet = 100.0
-        plugin.processing_mode = 0.0  # Classic
+        plugin.mode = "Classic"  # Classic
+        plugin.lfo_enabled = True
         plugin.lfo_depth = 0.0
 
         # Initialize
@@ -493,10 +499,11 @@ class TestLfoDepthNoArtifacts:
         signal = generate_sine(440.0, SR * 2)
         bs = 1024
 
-        plugin.shift_hz = 100.0
-        plugin.lfo_rate = 5.0
+        plugin.shift_hz_hz = 100.0
+        plugin.lfo_rate_hz = 5.0
         plugin.dry_wet = 100.0
-        plugin.processing_mode = 0.0
+        plugin.mode = "Classic"
+        plugin.lfo_enabled = True
         plugin.lfo_depth = 0.0
 
         process_streaming(plugin, signal[:int(SR * 0.2)], buffer_size=bs)

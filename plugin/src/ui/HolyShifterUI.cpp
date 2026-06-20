@@ -197,6 +197,7 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
 
     // === Freq Modulation ===
     lfoDepthSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DEPTH);
+    lfoDepthSlider_.setAdaptiveDecimals(true);
     addChild(&lfoDepthSlider_);
 
     // DepthMode combo — hidden, param still bound
@@ -213,8 +214,10 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
 
     lfoRateSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_RATE);
     lfoRateSlider_.setSuffix(" Hz");
+    lfoRateSlider_.setAdaptiveDecimals(true);
     lfoRateSlider_.setSyncAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DIVISION);
     lfoRateSlider_.setSyncLabels(kDivisionLabels);
+    lfoRateSlider_.setSyncReversed(true);   // slow (16/1) left, fast (1/32) right
     addChild(&lfoRateSlider_);
 
     lfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_SYNC);
@@ -229,8 +232,10 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
 
     delayTimeSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_TIME);
     delayTimeSlider_.setSuffix(" ms");
+    delayTimeSlider_.setSecondsAbove(1000.0f);   // show seconds past 1000 ms (range tops at 2000 ms)
     delayTimeSlider_.setSyncAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_DIVISION);
     delayTimeSlider_.setSyncLabels(kDivisionLabels);
+    delayTimeSlider_.setSyncReversed(true);   // slow (16/1) left, fast (1/32) right — match mod sliders
     addChild(&delayTimeSlider_);
 
     delaySyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DELAY_SYNC);
@@ -255,12 +260,15 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     // === Delay Modulation ===
     dlyLfoDepthSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_DEPTH);
     dlyLfoDepthSlider_.setSuffix(" ms");
+    dlyLfoDepthSlider_.setAdaptiveDecimals(true);
     addChild(&dlyLfoDepthSlider_);
 
     dlyLfoRateSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_RATE);
     dlyLfoRateSlider_.setSuffix(" Hz");
+    dlyLfoRateSlider_.setAdaptiveDecimals(true);
     dlyLfoRateSlider_.setSyncAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_DIVISION);
     dlyLfoRateSlider_.setSyncLabels(kDivisionLabels);
+    dlyLfoRateSlider_.setSyncReversed(true);   // slow (16/1) left, fast (1/32) right
     addChild(&dlyLfoRateSlider_);
 
     dlyLfoSyncToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_DLY_LFO_SYNC);

@@ -38,6 +38,12 @@ from conftest import SR, peak_frequency
 TRIAD_PCS = (0, 4, 7)
 A4_HZ = 440.0
 
+# pedalboard exposes each scale-note toggle by note name, not index. Indexed by pitch class.
+SCALE_NOTE_PARAMS = (
+    "scale_c", "scale_c_sharp", "scale_d", "scale_d_sharp", "scale_e", "scale_f",
+    "scale_f_sharp", "scale_g", "scale_g_sharp", "scale_a", "scale_a_sharp", "scale_b",
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,12 +75,12 @@ def nearest_in_scale_pitch_class(measured_freq: float, pcs=TRIAD_PCS) -> int:
 
 def configure_spectral_triad(plugin):
     """Configure the plugin as an in-key Spectral shifter with a C-major triad."""
-    plugin.processing_mode = 1.0  # 0=Classic (Hilbert), 1=Spectral
-    plugin.quantize_strength = 100.0
+    plugin.mode = "Spectral"        # Choice param: "Classic" (Hilbert) / "Spectral" (FFT)
+    plugin.quantize = 100.0
     plugin.dry_wet = 100.0  # avoid the dry-mix path masking quantized output
     plugin.lfo_depth = 0.0   # keep shift static so the peak doesn't smear
-    for i in range(12):
-        setattr(plugin, f"scale_note{i}", bool(i in TRIAD_PCS))
+    for pc, param in enumerate(SCALE_NOTE_PARAMS):
+        setattr(plugin, param, bool(pc in TRIAD_PCS))
     return plugin
 
 
@@ -121,7 +127,7 @@ SHIFT_VALUES_HZ = [0, 5, 10, 30, 75, 100, 200, 300, 500, 1000, 1500]
 def test_output_lands_on_scale_pitch_class(fresh_plugin, sine_440, shift_hz):
     """Dominant output frequency is on a C, E, or G in some octave."""
     plugin = configure_spectral_triad(fresh_plugin)
-    plugin.shift_hz = float(shift_hz)
+    plugin.shift_hz_hz = float(shift_hz)
 
     out = process_through_plugin(plugin, sine_440)
     stable = trim_latency(out)
@@ -130,10 +136,11 @@ def test_output_lands_on_scale_pitch_class(fresh_plugin, sine_440, shift_hz):
     measured = peak_frequency(stable)
     assert measured > 0, f"shift={shift_hz}: zero/silent output"
 
-    pc, cents = nearest_in_scale_pitch_class(measured)
-    assert cents < 50, (
+    pc, semitones_off = nearest_in_scale_pitch_class(measured)
+    cents_off = semitones_off * 100.0
+    assert cents_off < 50, (
         f"shift={shift_hz} Hz: dominant peak at {measured:.1f} Hz is "
-        f"{cents * 100:.0f} cents off the nearest C/E/G (pitch class {pc}). "
+        f"{cents_off:.0f} cents off the nearest C/E/G (pitch class {pc}). "
         f"Either the in-key snap is broken or the shift overshot the scale."
     )
 
@@ -157,7 +164,7 @@ def test_sub_bin_shifts_change_the_output(fresh_plugin, sine_440):
 
     outputs = {}
     for shift in [0, 100, 200, 300]:
-        plugin.shift_hz = float(shift)
+        plugin.shift_hz_hz = float(shift)
         out = process_through_plugin(plugin, sine_440)
         outputs[shift] = peak_frequency(trim_latency(out))
 
@@ -186,7 +193,7 @@ def test_inactive_pitch_classes_excluded(fresh_plugin, sine_440):
     forbidden = {1, 2, 3, 5, 6, 8, 9, 10, 11}  # everything except 0, 4, 7
 
     for shift in [0, 10, 100, 200, 300, 1000]:
-        plugin.shift_hz = float(shift)
+        plugin.shift_hz_hz = float(shift)
         out = process_through_plugin(plugin, sine_440)
         measured = peak_frequency(trim_latency(out))
         if measured <= 0:
@@ -207,7 +214,7 @@ def test_shift_zero_matches_pure_quantizer(fresh_plugin, sine_440):
     against C/E/G snaps to G4 (392 Hz) — the closest scale tone.
     """
     plugin = configure_spectral_triad(fresh_plugin)
-    plugin.shift_hz = 0.0
+    plugin.shift_hz_hz = 0.0
     out = process_through_plugin(plugin, sine_440)
     measured = peak_frequency(trim_latency(out))
 

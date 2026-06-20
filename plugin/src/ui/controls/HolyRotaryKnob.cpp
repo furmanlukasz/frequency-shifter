@@ -121,19 +121,14 @@ void HolyRotaryKnob::mouseDown(const visage::MouseEvent& e)
     fineMode_ = e.isShiftDown();
     attachment_->beginGesture();
 
-    if (fineMode_)
-    {
-        // Fine mode: stay at current value, accumulate vertical-delta moves at reduced sensitivity.
-        fineStartY_ = e.position.y;
-        float paramNorm = attachment_->getNormalisedValue();
-        fineStartKnobNorm_ = fromParamMapper_ ? fromParamMapper_(paramNorm) : paramNorm;
-        redraw();
-    }
-    else
-    {
-        // Coarse mode: jump to clicked angle (existing behavior).
-        updateFromMousePosition(e.position.x, e.position.y);
-    }
+    // Anchor the gesture here; vertical movement is applied as a delta from this point
+    // (no jump-to-angle). Dragging up raises the value, down lowers it.
+    dragStartY_ = e.position.y;
+    float paramNorm = attachment_->getNormalisedValue();
+    dragStartKnobNorm_ = fromParamMapper_ ? fromParamMapper_(paramNorm) : paramNorm;
+    dragKnobNorm_ = dragStartKnobNorm_;
+    dragCurrentNorm_ = paramNorm;
+    redraw();
 }
 
 void HolyRotaryKnob::mouseDrag(const visage::MouseEvent& e)
@@ -141,21 +136,15 @@ void HolyRotaryKnob::mouseDrag(const visage::MouseEvent& e)
     if (!dragging_ || !attachment_)
         return;
 
-    if (fineMode_)
-    {
-        // Vertical drag, scaled down. Upward = increasing.
-        float dy = fineStartY_ - e.position.y;
-        float deltaKnobNorm = dy / (kSensitivity * kFineSensitivityScale);
-        float newKnobNorm = std::clamp(fineStartKnobNorm_ + deltaKnobNorm, 0.0f, 1.0f);
-        dragKnobNorm_ = newKnobNorm;
-        dragCurrentNorm_ = toParamMapper_ ? toParamMapper_(newKnobNorm) : newKnobNorm;
-        attachment_->setNormalisedValue(dragCurrentNorm_);
-        redraw();
-    }
-    else
-    {
-        updateFromMousePosition(e.position.x, e.position.y);
-    }
+    // Vertical-delta drag: up = increase, down = decrease. Shift held → finer control.
+    float sensitivity = fineMode_ ? (kSensitivity * kFineSensitivityScale) : kSensitivity;
+    float dy = dragStartY_ - e.position.y;
+    float deltaKnobNorm = dy / sensitivity;
+    float newKnobNorm = std::clamp(dragStartKnobNorm_ + deltaKnobNorm, 0.0f, 1.0f);
+    dragKnobNorm_ = newKnobNorm;
+    dragCurrentNorm_ = toParamMapper_ ? toParamMapper_(newKnobNorm) : newKnobNorm;
+    attachment_->setNormalisedValue(dragCurrentNorm_);
+    redraw();
 }
 
 void HolyRotaryKnob::mouseUp(const visage::MouseEvent&)
@@ -164,37 +153,5 @@ void HolyRotaryKnob::mouseUp(const visage::MouseEvent&)
         attachment_->endGesture();
     dragging_ = false;
     fineMode_ = false;
-    redraw();
-}
-
-void HolyRotaryKnob::updateFromMousePosition(float mx, float my)
-{
-    float centreX = static_cast<float>(width()) * 0.5f;
-    float centreY = static_cast<float>(height()) * 0.5f;
-    float dx = mx - centreX;
-    float dy = my - centreY;
-
-    // Clamp mouse to minimum radius to prevent hypersensitivity near center
-    float dist = std::sqrt(dx * dx + dy * dy);
-    float radius = std::min(static_cast<float>(width()), static_cast<float>(height())) * 0.36f;
-    float minDist = radius * 0.5f;
-    if (dist < minDist && dist > 0.01f)
-    {
-        float scale = minDist / dist;
-        dx *= scale;
-        dy *= scale;
-    }
-
-    // atan2(dx, -dy) gives angle from top (12 o'clock), CW positive
-    float mouseAngle = std::atan2(dx, -dy);
-
-    // Clamp to knob range
-    mouseAngle = std::clamp(mouseAngle, kStartAngle, kEndAngle);
-
-    // Convert angle to knob norm (0-1)
-    float knobNorm = (mouseAngle - kStartAngle) / (kEndAngle - kStartAngle);
-    dragKnobNorm_ = knobNorm;
-    dragCurrentNorm_ = toParamMapper_ ? toParamMapper_(knobNorm) : knobNorm;
-    attachment_->setNormalisedValue(dragCurrentNorm_);
     redraw();
 }

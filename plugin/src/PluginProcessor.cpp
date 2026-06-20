@@ -219,7 +219,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         },
         [](float start, float end, float value) {
             (void)start; (void)end;
-            return std::round(value * 10.0f) / 10.0f;  // snap to 0.1
+            return std::round(value * 1000.0f) / 1000.0f;  // snap to 0.001 (fine low-end readout)
         });
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ PARAM_LFO_DEPTH, 1 },
@@ -296,7 +296,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         },
         [](float start, float end, float value) {
             (void)start; (void)end;
-            return std::round(value * 10.0f) / 10.0f;  // snap to 0.1
+            return std::round(value * 1000.0f) / 1000.0f;  // snap to 0.001 (fine low-end readout)
         });
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ PARAM_DLY_LFO_DEPTH, 1 },
