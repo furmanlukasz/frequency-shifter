@@ -105,11 +105,18 @@ juce_add_plugin(FrequencyShifter
     # Plugin formats to build
     FORMATS AU VST3 AUv3 Standalone
 
+    # juce_vst3_helper can't load this bundle to emit moduleinfo.json ("couldn't be loaded").
+    # This is a SEPARATE, pre-existing issue from the automation hang (which is fixed): the
+    # VST3-SDK Module loader rejects the bundle although JUCE hosts (pluginval / pedalboard /
+    # DAWs) load it fine. Skip the (optional) manifest so the VST3 builds; DAWs load the
+    # plugin without moduleinfo.json — it is only a host-scan speed optimisation.
+    VST3_AUTO_MANIFEST FALSE
+
     # Plugin name. Single source of truth for the version is project(... VERSION) above;
     # it flows into JucePlugin_VersionString and holy::kVersion (Version.h).
     # Note for devs: dropping the version suffix means DAWs no longer auto-rescan on
     # iteration. Bump PROJECT_VERSION for a fresh rescan, or clear the host plugin cache.
-    PRODUCT_NAME "Holy Shifter"
+    PRODUCT_NAME "Holy Shifter v119 PeakSnap"
     VERSION ${PROJECT_VERSION}
 
     # Plugin characteristics

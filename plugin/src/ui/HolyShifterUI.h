@@ -192,6 +192,11 @@ private:
     HolySlider sensitivitySlider_;
     HolySlider smearSlider_;
 
+    // Peak-region snapping + sines/noise split (provisional placement in Spectral panel)
+    HolyToggle peakSnapToggle_;
+    HolySlider noiseSlider_;
+    HolySlider peakSensSlider_;
+
     // Freq Modulation
     HolySlider lfoDepthSlider_;
     HolyComboBox lfoDepthModeCombo_;   // Hz/Degrees (hidden, kept for param binding)

@@ -29,3 +29,7 @@
 # Build artifacts
 build/
 plugin/build/
+plugin/dist/
+
+# Local signing material (not for the repo)
+*.cer

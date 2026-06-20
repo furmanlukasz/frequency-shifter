@@ -17,7 +17,8 @@
  * - Stereo processing support
  */
 class FrequencyShifterProcessor : public juce::AudioProcessor,
-                                   public juce::AudioProcessorValueTreeState::Listener
+                                   public juce::AudioProcessorValueTreeState::Listener,
+                                   private juce::AsyncUpdater
 {
 public:
     FrequencyShifterProcessor();
@@ -106,6 +107,9 @@ public:
     static constexpr const char* PARAM_PRESERVE = "preserve";          // 0-100%
     static constexpr const char* PARAM_TRANSIENTS = "transients";      // 0-100%
     static constexpr const char* PARAM_SENSITIVITY = "sensitivity";    // 0-100%
+    static constexpr const char* PARAM_PEAK_SNAP = "peakSnap";         // bool: peak-region snapping
+    static constexpr const char* PARAM_NOISE_MIX = "noiseMix";         // 0-100%: residual passthrough
+    static constexpr const char* PARAM_PEAK_SENS = "peakSens";         // 0-100%: peak threshold
 
     // Processing mode: Classic (Hilbert) vs Spectral (FFT)
     static constexpr const char* PARAM_PROCESSING_MODE = "processingMode";  // 0=Classic, 1=Spectral
@@ -201,6 +205,9 @@ private:
     double lfoPhase = 0.0;
     float lastRandomValue = 0.0f;  // For Random shape S&H
 
+    // Transport state for LFO retrigger-on-play (edge-detected against host isPlaying)
+    bool wasPlaying = false;
+
     // Delay Time LFO state (independent from frequency LFO)
     std::atomic<float> dlyLfoDepth{ 0.0f };    // 0-1000 ms
     std::atomic<float> dlyLfoRate{ 1.0f };     // 0.01-20 Hz when not synced
@@ -234,6 +241,11 @@ private:
     std::atomic<float> preserveAmount{ 0.0f };     // 0.0 - 1.0
     std::atomic<float> transientAmount{ 0.0f };    // 0.0 - 1.0
     std::atomic<float> transientSensitivity{ 0.5f }; // 0.0 - 1.0 (default 50%)
+
+    // Peak-region snapping + sines/noise split (mirror the quantizer members; defaults must match)
+    std::atomic<bool>  peakSnapEnabled{ false };
+    std::atomic<float> noiseMix{ 0.7f };           // 0.0 - 1.0
+    std::atomic<float> peakSensitivity{ 0.5f };    // 0.0 - 1.0
 
     // Processing mode: 0=Classic (Hilbert), 1=Spectral (FFT)
     std::atomic<int> processingMode{ 1 };  // Default to Spectral mode
@@ -280,6 +292,14 @@ private:
 
     // Flag to reinitialize DSP on next block
     std::atomic<bool> needsReinit{ false };
+
+    // Latency changes must never call setLatencySamples() from the audio thread: it notifies
+    // the host synchronously and can block the audio thread on a WaitableEvent (the pluginval
+    // automation hang on mode switches). requestLatency() applies it directly on the message
+    // thread, else defers it to the message thread via AsyncUpdater.
+    std::atomic<int> pendingLatencySamples{ -1 };
+    void requestLatency(int latencySamples);
+    void handleAsyncUpdate() override;
 
     // Reinitialize DSP components with new FFT settings
     void reinitializeDsp();

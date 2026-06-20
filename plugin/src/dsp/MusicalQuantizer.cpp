@@ -9,6 +9,20 @@ namespace fshift
 static constexpr float TWO_PI = 6.283185307179586f;
 static constexpr float PI = 3.14159265359f;
 
+// Quick-win #3: fraction of the measured (input) phase to KEEP even at full Quantize,
+// so remapped bins never lock to a perfectly steady oscillator ramp (= a pure sine).
+// The pull toward the per-note phase accumulator is capped at (1 - PHASE_TEXTURE_RETAIN),
+// leaving this much of the source bin's real, frame-to-frame phase wobble intact. That
+// residual irregularity is what keeps quantized output sounding like the source instead
+// of a glassy sine bank. 0.0f = original behaviour (100% lock); 0.15-0.35 is the useful
+// range; higher = noisier / less "in-tune". Promote to an APVTS knob if it earns its keep.
+static constexpr float PHASE_TEXTURE_RETAIN = 0.20f;
+
+// Peak-region snapping: how many bins on each side of a detected peak are treated as part
+// of its main lobe and shifted with it (capped; the walk stops earlier at the lobe valley).
+// A Hann main lobe at fftSize 4096 is only a few bins wide, so this is a generous cap.
+static constexpr int PEAK_REGION_HALF_WIDTH = 4;
+
 MusicalQuantizer::MusicalQuantizer(int rootMidi, ScaleType scaleType)
     : rootMidi(rootMidi),
       scaleType(scaleType),
@@ -39,6 +53,8 @@ void MusicalQuantizer::reset()
 {
     midiPhaseAccumulators.fill(0.0f);
     silentFrameCount.fill(0);
+    midiNoteActivity.fill(0.0f);
+    peakPrevEnergy = 0.0f;
 }
 
 void MusicalQuantizer::setRootNote(int newRootMidi)
@@ -629,6 +645,167 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
         energyBefore += magnitude[static_cast<size_t>(k)] * magnitude[static_cast<size_t>(k)];
     }
 
+    // ================= Peak-region snapping + sines/noise split =================
+    // Snapping every bin turns broadband/noise energy into a sparse line spectrum (the
+    // "glassy sines"). Instead: detect tonal peaks, move each peak together with its
+    // main-lobe skirt to the snapped scale frequency as a rigid unit, and let the
+    // non-peak ("noise") bins pass straight through (scaled by noiseMix). The shared
+    // downstream stages (phase continuity + PhaseTex, envelope) then apply as usual.
+    float attack = 0.0f;  // peak-mode attack factor (hoisted; drives the transient passthrough)
+    if (peakSnapEnabled)
+    {
+        // 1. Peak detection: local maxima above a sensitivity-controlled threshold.
+        float maxMag = 0.0f;
+        for (int k = 1; k < numBins; ++k)
+            maxMag = std::max(maxMag, magnitude[static_cast<size_t>(k)]);
+
+        // Attack detection: a sharp rise in total energy vs the previous frame = a transient.
+        // We use it to let the broadband residual through at full level so percussion punches
+        // (a transient lives in the noise bins, not the peaks). attack: 0 at <=1.5x, 1 at >=3.5x.
+        if (peakPrevEnergy > 1e-9f)
+            attack = std::clamp((energyBefore / peakPrevEnergy - 1.5f) / 2.0f, 0.0f, 1.0f);
+        peakPrevEnergy = energyBefore;
+        float effNoiseMix = noiseMix + attack * (1.0f - noiseMix);  // -> full residual on attacks
+
+        // sensitivity 0 -> only peaks within ~18 dB of the max; 1 -> down to ~72 dB.
+        float thresholdDb = -18.0f - peakSnapSensitivity * 54.0f;
+        float peakThreshold = maxMag * std::pow(10.0f, thresholdDb / 20.0f);
+        float stickyThreshold = peakThreshold * 0.5f;  // -6 dB existence-hysteresis band
+
+        std::vector<bool> isTonal(static_cast<size_t>(numBins), false);
+        std::vector<int> peakBins;
+        for (int k = 1; k < numBins - 1; ++k)
+        {
+            float m = magnitude[static_cast<size_t>(k)];
+            bool localMax = (m >= magnitude[static_cast<size_t>(k - 1)] &&
+                             m >  magnitude[static_cast<size_t>(k + 1)]);
+            if (!localMax)
+                continue;
+            if (m > peakThreshold)
+            {
+                peakBins.push_back(k);  // clear peak
+            }
+            else if (m > stickyThreshold)
+            {
+                // Existence hysteresis: keep a borderline peak alive if its scale note was
+                // recently active, so peaks don't flicker in/out frame-to-frame (the chatter).
+                float f = static_cast<float>(k) * binResolution + shiftHz;
+                if (f > 0.0f)
+                {
+                    int nm = tuning::quantizeToScale(tuning::freqToMidi(f), rootMidi, scaleDegrees);
+                    if (nm >= 0 && nm < NUM_MIDI_NOTES && midiNoteActivity[static_cast<size_t>(nm)] > 0.3f)
+                        peakBins.push_back(k);
+                }
+            }
+        }
+
+        // 2. Mark each peak's main lobe (walk out to the valley, capped) as tonal.
+        for (int p : peakBins)
+        {
+            isTonal[static_cast<size_t>(p)] = true;
+            for (int k = p + 1; k < numBins && (k - p) <= PEAK_REGION_HALF_WIDTH; ++k)
+            {
+                if (magnitude[static_cast<size_t>(k)] > magnitude[static_cast<size_t>(k - 1)])
+                    break;  // rising again -> past the lobe edge
+                isTonal[static_cast<size_t>(k)] = true;
+            }
+            for (int k = p - 1; k >= 1 && (p - k) <= PEAK_REGION_HALF_WIDTH; --k)
+            {
+                if (magnitude[static_cast<size_t>(k)] > magnitude[static_cast<size_t>(k + 1)])
+                    break;
+                isTonal[static_cast<size_t>(k)] = true;
+            }
+        }
+
+        // 3. Noise residual: non-tonal bins pass through in place, scaled by noiseMix.
+        //    Left un-remapped so the phase stage keeps their original (textured) phase.
+        for (int k = 1; k < numBins; ++k)
+        {
+            if (!isTonal[static_cast<size_t>(k)])
+            {
+                float contrib = magnitude[static_cast<size_t>(k)] * effNoiseMix;
+                quantizedMagnitude[static_cast<size_t>(k)] += contrib;
+                if (contrib > maxMagnitudeAtBin[static_cast<size_t>(k)])
+                {
+                    maxMagnitudeAtBin[static_cast<size_t>(k)] = contrib;
+                    strongestContributorPhase[static_cast<size_t>(k)] = phase[static_cast<size_t>(k)];
+                }
+            }
+        }
+
+        // 4. Tonal peaks: shift each whole lobe to the snapped scale frequency as a unit.
+        for (int p : peakBins)
+        {
+            // Refine true peak frequency via parabolic interpolation on log-magnitude.
+            float frac = 0.0f;
+            {
+                float a = std::log(magnitude[static_cast<size_t>(p - 1)] + 1e-12f);
+                float b = std::log(magnitude[static_cast<size_t>(p)]     + 1e-12f);
+                float c = std::log(magnitude[static_cast<size_t>(p + 1)] + 1e-12f);
+                float denom = a - 2.0f * b + c;
+                if (std::abs(denom) > 1e-12f)
+                    frac = std::clamp(0.5f * (a - c) / denom, -0.5f, 0.5f);
+            }
+            float trueFreq = (static_cast<float>(p) + frac) * binResolution;
+            float srcFreq = trueFreq + shiftHz;
+            if (srcFreq <= 0.0f)
+                continue;
+
+            // Snapped target frequency (blended by effectiveStrength) and its scale note.
+            float snappedFreq = quantizeFrequency(srcFreq, effectiveStrength);
+            int snappedMidi = tuning::quantizeToScale(tuning::freqToMidi(srcFreq), rootMidi, scaleDegrees);
+
+            if (driftCents != nullptr && static_cast<size_t>(p) < driftCents->size())
+                snappedFreq = applyDriftCents(snappedFreq, (*driftCents)[static_cast<size_t>(p)]);
+
+            int delta = static_cast<int>(std::round(snappedFreq / binResolution)) - p;
+
+            // Contiguous tonal run (lobe) around p, capped at the region half-width.
+            int lo = p, hi = p;
+            while (lo - 1 >= 1 && isTonal[static_cast<size_t>(lo - 1)] && (p - (lo - 1)) <= PEAK_REGION_HALF_WIDTH) --lo;
+            while (hi + 1 < numBins && isTonal[static_cast<size_t>(hi + 1)] && ((hi + 1) - p) <= PEAK_REGION_HALF_WIDTH) ++hi;
+
+            for (int k = lo; k <= hi; ++k)
+            {
+                int outk = k + delta;
+                if (outk < 1 || outk >= numBins)
+                    continue;
+                float contrib = magnitude[static_cast<size_t>(k)];
+                quantizedMagnitude[static_cast<size_t>(outk)] += contrib;
+                contributorCount[static_cast<size_t>(outk)]++;
+                if (outk != k)
+                    binWasRemapped[static_cast<size_t>(outk)] = true;
+                if (contrib > maxMagnitudeAtBin[static_cast<size_t>(outk)])
+                {
+                    maxMagnitudeAtBin[static_cast<size_t>(outk)] = contrib;
+                    strongestContributorPhase[static_cast<size_t>(outk)] = phase[static_cast<size_t>(k)];
+                }
+                // Tie the moved peak centre to its scale note so the phase stage locks it.
+                // (A flat-phase lock of the whole lobe was tried to chase a smooth harmonizer
+                // sound; it didn't help the inherent overlap-add AM and risked glassiness, and
+                // that goal was dropped in favour of Spectral-as-textural-effect — so reverted.)
+                if (k == p && snappedMidi >= 0 && snappedMidi < NUM_MIDI_NOTES)
+                {
+                    targetMidiNotes[static_cast<size_t>(outk)] = snappedMidi;
+                    midiNoteMagnitude[static_cast<size_t>(snappedMidi)] += contrib;
+                    binWasRemapped[static_cast<size_t>(outk)] = true;
+                }
+            }
+        }
+
+        // Update per-note activity for the existence hysteresis: notes that received energy
+        // this frame are fully active; the rest decay, so a note stays "sticky" for a few
+        // frames after it drops out — this is what stops the peak flicker / chatter.
+        for (int m = 0; m < NUM_MIDI_NOTES; ++m)
+        {
+            if (midiNoteMagnitude[static_cast<size_t>(m)] > MAGNITUDE_THRESHOLD)
+                midiNoteActivity[static_cast<size_t>(m)] = 1.0f;
+            else
+                midiNoteActivity[static_cast<size_t>(m)] *= 0.6f;
+        }
+    }
+    else
+    {
     // Calculate bin frequencies and target bins
     // Strategy A: Use weighted energy distribution to two nearest scale bins
     for (int k = 0; k < numBins; ++k)
@@ -740,6 +917,7 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
             quantizedMagnitude[static_cast<size_t>(lowerBin)] += sourceMag * upperWeight;
         }
     }
+    }  // end else — legacy per-bin distribution path (indentation kept to minimise diff)
 
     // Phase 2A.1: Apply accumulation normalization
     // When multiple bins map to same target, normalize by sqrt(contributorCount)
@@ -752,23 +930,32 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
     }
 
     // Strategy C: Apply magnitude smoothing (3-tap moving average)
-    // This reduces sharp spectral peaks/pits that can cause resonance
-    applyMagnitudeSmoothing(quantizedMagnitude);
+    // This reduces sharp spectral peaks/pits that can cause resonance.
+    // Skipped in peak-snap mode: we deliberately preserve each lobe's shape and the
+    // untouched noise residual, so blurring would work against both.
+    if (!peakSnapEnabled)
+        applyMagnitudeSmoothing(quantizedMagnitude);
 
-    // Phase 2A.2: Calculate total energy AFTER quantization+smoothing and normalize
-    float energyAfter = 0.0f;
-    for (int k = 0; k < numBins; ++k)
+    // Phase 2A.2: Calculate total energy AFTER quantization+smoothing and normalize.
+    // Skipped in peak-snap mode: noiseMix intentionally rebalances tonal-vs-noise energy,
+    // and renormalising to the input energy would undo it (tonal energy is already
+    // preserved 1:1 by the rigid lobe move).
+    if (!peakSnapEnabled)
     {
-        energyAfter += quantizedMagnitude[static_cast<size_t>(k)] * quantizedMagnitude[static_cast<size_t>(k)];
-    }
-
-    // Apply energy normalization scale factor
-    if (energyAfter > 1e-10f)
-    {
-        float scaleFactor = std::sqrt(energyBefore / energyAfter);
+        float energyAfter = 0.0f;
         for (int k = 0; k < numBins; ++k)
         {
-            quantizedMagnitude[static_cast<size_t>(k)] *= scaleFactor;
+            energyAfter += quantizedMagnitude[static_cast<size_t>(k)] * quantizedMagnitude[static_cast<size_t>(k)];
+        }
+
+        // Apply energy normalization scale factor
+        if (energyAfter > 1e-10f)
+        {
+            float scaleFactor = std::sqrt(energyBefore / energyAfter);
+            for (int k = 0; k < numBins; ++k)
+            {
+                quantizedMagnitude[static_cast<size_t>(k)] *= scaleFactor;
+            }
         }
     }
 
@@ -854,7 +1041,9 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
 
                         // FIX: Blend between input phase and quantized phase based on effectiveStrength
                         // At strength=0: 100% input phase (phase vocoder if enabled)
-                        // At strength=1: 100% quantized phase (phase accumulator)
+                        // At strength=1: pull (1 - PHASE_TEXTURE_RETAIN) toward the phase accumulator,
+                        //   i.e. deliberately STOP short of a full 100% lock so a slice of the source
+                        //   bin's real phase texture survives (quick-win #3 — de-glass the sines).
                         // This allows Enhanced Mode to affect the non-quantized portion
                         // Also respects transient detection which reduces quantization during attacks
 
@@ -866,8 +1055,15 @@ std::pair<std::vector<float>, std::vector<float>> MusicalQuantizer::quantizeSpec
                         while (phaseDiff > PI) phaseDiff -= TWO_PI;
                         while (phaseDiff < -PI) phaseDiff += TWO_PI;
 
-                        // Interpolate: inputPhase + effectiveStrength * (difference)
-                        outputPhase = inputPhase + effectiveStrength * phaseDiff;
+                        // Cap the pull toward the steady accumulator so we never fully lock:
+                        // phaseLockAmount peaks at (1 - retain) when effectiveStrength = 1.
+                        // In peak-snap mode the noise path already supplies natural texture, so
+                        // the snapped tonal peaks lock FULLY to the clean accumulator (retain 0,
+                        // no PhaseTex) — steady in-tune tones instead of the fizzy/gritty phase
+                        // jitter PhaseTex causes on already-moving peaks. Per-bin mode keeps it.
+                        float retain = peakSnapEnabled ? 0.0f : PHASE_TEXTURE_RETAIN;
+                        float phaseLockAmount = effectiveStrength * (1.0f - retain);
+                        outputPhase = inputPhase + phaseLockAmount * phaseDiff;
 
                         // Wrap result to [-PI, PI]
                         while (outputPhase > PI) outputPhase -= TWO_PI;
