@@ -1,168 +1,302 @@
-// Holy Shifter WebView UI — data-driven from window.HOLY_PARAMS, bound to the
-// native APVTS via JUCE's juce.js relays. Responsive: the panel grid (style.css)
-// reflows on resize; controls read their range/choices/label live from the relay
-// state's `properties`, so no values are hard-coded here.
+// Holy Shifter WebView UI — faithful replica of the Visage design (fixed 700x928,
+// scaled to fit). Big rotary shift knob + pagan artwork + the exact section layout.
 import * as Juce from "./juce.js";
 
-const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
+const W = 700, H = 928;
+const NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const BLACK = new Set([1, 3, 6, 8, 10]);
-const params = window.HOLY_PARAMS || [];
 
-const $ = (tag, cls, txt) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (txt != null) e.textContent = txt;
-  return e;
-};
+const stage = document.createElement("div"); stage.id = "stage";
+const scrim = document.createElement("div"); scrim.className = "scrim"; stage.append(scrim);
+document.getElementById("app").replaceWith(stage);
 
-// Note: getScaledValue() maps through start/end/skew only. Most Holy Shifter curved
-// params use lambda NormalisableRanges (skew left at 1), so this readout is exact for
-// linear params and approximate for curved ones — the value WRITTEN is always correct
-// (setNormalisedValue passes the normalised value through the param's real curve in C++).
-function fmtValue(state) {
-  const p = state.properties || {};
-  let v = state.getScaledValue();
-  if (!isFinite(v)) v = 0;
-  const a = Math.abs(v);
-  let s;
-  if (a >= 100) s = v.toFixed(0);
-  else if (a >= 1) s = v.toFixed(1);
-  else if (a > 0 && a < 0.1) s = v.toFixed(3);
-  else s = v.toFixed(2);
-  return s + (p.label ? " " + p.label : "");
-}
+// ---- helpers -------------------------------------------------------------
+function pos(el, x, y, w, h) { el.style.left = x + "px"; el.style.top = y + "px";
+  if (w != null) el.style.width = w + "px"; if (h != null) el.style.height = h + "px"; return el; }
+function add(cls, x, y, w, h) { const e = document.createElement("div"); e.className = cls; pos(e, x, y, w, h); stage.append(e); return e; }
+function text(cls, str, x, y, w, h, align) { const e = add("txt " + cls, x, y, w, h); e.textContent = str;
+  if (align) e.style.textAlign = align; e.style.display = "flex";
+  e.style.alignItems = "center"; e.style.justifyContent = align === "right" ? "flex-end" : align === "center" ? "center" : "flex-start";
+  return e; }
 
-function makeSlider(p) {
-  const wrap = $("div", "ctl ctl-slider");
-  const head = $("div", "ctl-head");
-  const valEl = $("span", "ctl-val", "");
-  head.append($("span", "ctl-label", p.name || p.id), valEl);
-  const input = $("input", "slider");
-  input.type = "range"; input.min = "0"; input.max = "1"; input.step = "0.0005";
-  wrap.append(head, input);
+function scaleStage() { stage.style.setProperty("--s", Math.min(window.innerWidth / W, window.innerHeight / H)); }
+window.addEventListener("resize", scaleStage); scaleStage();
 
-  const state = Juce.getSliderState(p.id);
+// ---- static chrome -------------------------------------------------------
+add("accent-line", 0, 0);
+text("title", "H O L Y   S H I F T E R", 27, 13, 440, 31);
+text("subtitle", "Frequency Shifter with Harmonic Quantisation", 29, 45, 400, 12);
+const logo = document.createElement("img"); logo.className = "logo"; logo.src = "heathen-machines-logo.png";
+pos(logo, 609, 18, 51, 53); stage.append(logo);
+add("strip", 0, 94, null, 0);                              // preset separator line (border-top draws it)
+add("strip", 0, 101, null, 36).style.background = "rgba(12,12,14,0.45)"; // mode strip bg
+
+// section strips (bg + header)
+function strip(label, y, h, bg) { const s = add("strip", 0, y, null, h); if (bg) s.style.background = bg;
+  if (label) text("hdr", label, 14, y + 6, 180, 10); return s; }
+strip("FREQ MODULATION", 405, 110, "rgba(14,14,16,0.30)");
+strip("DELAY", 517, 134, "rgba(14,14,16,0.30)");
+strip("DELAY MODULATION", 651, 92, "rgba(14,14,16,0.30)");
+const maskStripEl = strip("MASK", 761, 90, "rgba(25,25,29,0.50)");
+strip(null, 851, 72, "linear-gradient(rgba(15,15,17,0.60),rgba(10,10,12,0.60))"); // mix footer
+add("divider", 0, 516); add("divider", 0, 760);
+add("accent-line", 0, 926).style.opacity = ".5";
+
+// spectral panel
+const panel = add("panel", 245, 158, 430, 240);
+const ph = document.createElement("div"); ph.className = "hairline"; panel.append(ph);
+const spectralHdr = text("hdr", "SPECTRAL CONTROLS", 258, 167, 150, 10);
+
+// labels (right-aligned, matching draw())
+const L = (s, x, y, w, align = "right", cls = "lbl") => text(cls, s, x, y, w, 16, align);
+const specLabels = [
+  L("Quantize", 254, 240, 62), L("Envelope", 254, 270, 62), L("Transients", 254, 300, 62),
+  L("Sens", 456, 300, 54), L("Smear", 270, 360, 40, "left"),
+  L("Texture", 250, 342, 64), L("Density", 454, 342, 62),
+  text("tip", "(Adjust with care while playing)", 387, 379, 250, 10, "left"),
+];
+L("Depth", 27, 434, 42); L("Rate", 27, 464, 42);
+L("Time", 116, 545, 36); L("Feedback", 28, 579, 60); L("Damping", 348, 579, 58);
+const slopeLbl = L("Slope", 28, 613, 42);
+L("Depth", 28, 681, 42); L("Rate", 28, 711, 42);
+const maskLabels = [L("Transition", 218, 789, 60), L("Low", 28, 821, 28), L("High", 369, 821, 30)];
+L("DRY / WET", 28, 885, 72);
+
+// ---- generic controls ----------------------------------------------------
+function slider(id, x, y, w, h) {
+  const el = add("vslider", x, y, w, h);
+  const trk = document.createElement("div"); trk.className = "strack";
+  const bg = document.createElement("div"); bg.className = "sbg";
+  const fill = document.createElement("div"); fill.className = "sfill";
+  const dot = document.createElement("div"); dot.className = "sdot";
+  const val = document.createElement("div"); val.className = "sval";
+  trk.append(bg, fill, dot); el.append(trk, val);
+  const st = Juce.getSliderState(id);
+  const fmtVal = () => { const p = st.properties || {}; let v = st.getScaledValue(); if (!isFinite(v)) v = 0;
+    const a = Math.abs(v); let s = a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(1) : a > 0 && a < 0.1 ? v.toFixed(3) : v.toFixed(2);
+    val.textContent = s + (p.label ? " " + p.label : ""); };
+  const refresh = () => { const n = st.getNormalisedValue(); fill.style.width = (n * 100) + "%"; dot.style.left = (n * 100) + "%"; fmtVal(); };
+  const setFromX = (clientX) => { const r = trk.getBoundingClientRect(); const n = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    st.setNormalisedValue(n); fill.style.width = (n * 100) + "%"; dot.style.left = (n * 100) + "%"; fmtVal(); };
   let dragging = false;
-  const refresh = () => { if (!dragging) input.value = String(state.getNormalisedValue()); valEl.textContent = fmtValue(state); };
-  input.addEventListener("input", () => { state.setNormalisedValue(parseFloat(input.value)); valEl.textContent = fmtValue(state); });
-  input.addEventListener("pointerdown", () => { dragging = true; state.sliderDragStarted(); });
-  input.addEventListener("pointerup", () => { dragging = false; state.sliderDragEnded(); refresh(); });
-  input.addEventListener("pointercancel", () => { dragging = false; state.sliderDragEnded(); refresh(); });
-  state.valueChangedEvent.addListener(refresh);
-  state.propertiesChangedEvent.addListener(refresh);
-  refresh();
-  return wrap;
+  trk.addEventListener("pointerdown", (e) => { dragging = true; trk.setPointerCapture(e.pointerId); st.sliderDragStarted(); setFromX(e.clientX); });
+  trk.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
+  trk.addEventListener("pointerup", (e) => { dragging = false; try { trk.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); refresh(); });
+  st.valueChangedEvent.addListener(refresh); st.propertiesChangedEvent.addListener(refresh); refresh();
+  return el;
 }
 
-function makeCombo(p) {
-  const wrap = $("div", "ctl ctl-combo");
-  wrap.append($("span", "ctl-label", p.name || p.id));
-  const sel = $("select", "select");
-  wrap.append(sel);
-  const state = Juce.getComboBoxState(p.id);
-  const populate = () => {
-    const ch = (state.properties && state.properties.choices) || [];
-    sel.innerHTML = "";
-    ch.forEach((c, i) => { const o = $("option", null, c); o.value = String(i); sel.append(o); });
-    sel.value = String(state.getChoiceIndex());
-  };
-  sel.addEventListener("change", () => state.setChoiceIndex(parseInt(sel.value, 10)));
-  state.propertiesChangedEvent.addListener(populate);
-  state.valueChangedEvent.addListener(() => { sel.value = String(state.getChoiceIndex()); });
-  populate();
-  return wrap;
+function toggleSwitch(id, x, y, w, h, label) {
+  const el = add("switch", x, y, w, h);
+  const trk = document.createElement("div"); trk.className = "track";
+  const dot = document.createElement("div"); dot.className = "dot"; trk.append(dot);
+  el.append(trk);
+  if (label) { const lab = document.createElement("span"); lab.className = "swlabel"; lab.textContent = label; el.append(lab); }
+  const st = Juce.getToggleState(id);
+  const refresh = () => el.classList.toggle("on", st.getValue());
+  el.addEventListener("click", () => st.setValue(!st.getValue()));
+  st.valueChangedEvent.addListener(refresh); refresh();
+  return el;
 }
 
-function makeToggle(p) {
-  const btn = $("button", "ctl ctl-toggle", p.name || p.id);
-  const state = Juce.getToggleState(p.id);
-  const refresh = () => btn.classList.toggle("on", state.getValue());
-  btn.addEventListener("click", () => state.setValue(!state.getValue()));
-  state.valueChangedEvent.addListener(refresh);
-  refresh();
-  return btn;
+function combo(id, x, y, w, h) {
+  const sel = document.createElement("select"); sel.className = "combo"; pos(sel, x, y, w, h); stage.append(sel);
+  const st = Juce.getComboBoxState(id);
+  const populate = () => { const ch = (st.properties && st.properties.choices) || []; sel.innerHTML = "";
+    ch.forEach((c, i) => { const o = document.createElement("option"); o.value = i; o.textContent = c; sel.append(o); });
+    sel.value = String(st.getChoiceIndex()); };
+  sel.addEventListener("change", () => st.setChoiceIndex(parseInt(sel.value, 10)));
+  st.propertiesChangedEvent.addListener(populate);
+  st.valueChangedEvent.addListener(() => { sel.value = String(st.getChoiceIndex()); }); populate();
+  return sel;
 }
 
-function makePiano(items) {
-  const wrap = $("div", "piano");
-  const sorted = items.slice().sort((a, b) => parseInt(a.id.slice(9), 10) - parseInt(b.id.slice(9), 10));
-  for (const p of sorted) {
-    const idx = parseInt(p.id.slice(9), 10); // strip "scaleNote"
-    const key = $("button", "key " + (BLACK.has(idx) ? "black" : "white"), NOTE_NAMES[idx]);
-    const state = Juce.getToggleState(p.id);
-    const refresh = () => key.classList.toggle("on", state.getValue());
-    key.addEventListener("click", () => state.setValue(!state.getValue()));
-    state.valueChangedEvent.addListener(refresh);
-    refresh();
-    wrap.append(key);
+function segmented(id, x, y, w, h, segs, onChange) {
+  const el = add("seg", x, y, w, h);
+  const st = Juce.getComboBoxState(id);
+  const opts = segs.map((s, i) => { const o = document.createElement("div"); o.className = "segopt"; o.textContent = s;
+    o.addEventListener("click", () => st.setChoiceIndex(i)); el.append(o); return o; });
+  const refresh = () => { const idx = st.getChoiceIndex(); opts.forEach((o, i) => o.classList.toggle("on", i === idx)); if (onChange) onChange(idx); };
+  st.valueChangedEvent.addListener(refresh); st.propertiesChangedEvent.addListener(refresh); refresh();
+  return el;
+}
+
+function piano(x, y, w, h) {
+  const el = add("piano", x, y, w, h);
+  const whiteIdx = [0, 2, 4, 5, 7, 9, 11];
+  const ww = w / 7, bw = ww * 0.62, bh = h * 0.62;
+  // white keys
+  whiteIdx.forEach((pc, i) => makeKey(pc, i * ww, 0, ww - 1, h, "white"));
+  // black keys positioned over the gaps after white indices 0,1,3,4,5
+  const blackAfter = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+  for (const pc of [1, 3, 6, 8, 10]) makeKey(pc, (blackAfter[pc] + 1) * ww - bw / 2, 0, bw, bh, "black");
+  function makeKey(pc, kx, ky, kw, kh, kind) {
+    const k = document.createElement("div"); k.className = "pk " + kind; k.textContent = NOTE[pc];
+    k.style.left = kx + "px"; k.style.top = ky + "px"; k.style.width = kw + "px"; k.style.height = kh + "px";
+    k.style.position = "absolute"; el.append(k);
+    const st = Juce.getToggleState("scaleNote" + pc);
+    const refresh = () => k.classList.toggle("on", st.getValue());
+    k.addEventListener("click", () => st.setValue(!st.getValue()));
+    st.valueChangedEvent.addListener(refresh); refresh();
   }
-  return wrap;
+  el.style.position = "absolute"; return el;
 }
 
-async function buildPresetBar(host) {
-  const bar = $("div", "presetbar");
-  const sel = $("select", "preset-select");
-  const name = $("input", "preset-name"); name.type = "text"; name.placeholder = "preset name…";
-  const saveBtn = $("button", "pbtn", "Save");
-  const delBtn = $("button", "pbtn", "Delete");
-  bar.append($("span", "preset-lbl", "Preset"), sel, name, saveBtn, delBtn);
-  host.append(bar);
+// ---- rotary shift knob (bipolar, symmetric-log display) -------------------
+function shiftKnob(x, y, w, h) {
+  const el = add("knob", x, y, w, h);
+  const cv = document.createElement("canvas"); el.append(cv);
+  const SS = 3; cv.width = w * SS; cv.height = h * SS;
+  const ctx = cv.getContext("2d"); ctx.scale(SS, SS);
+  const st = Juce.getSliderState("shiftHz");
+  const A0 = -2.35619, A1 = 2.35619, LS = 10, LMAX = Math.log(1 + 5000 / LS);
+  const dispFromKnob = (kn) => { const s = kn * 2 - 1, sg = s >= 0 ? 1 : -1, a = Math.abs(s); return sg * LS * (Math.exp(a * LMAX) - 1); };
+  const pnFromKnob = (kn) => (dispFromKnob(kn) + 20000) / 40000;
+  const knobFromPn = (pn) => { const pv = pn * 40000 - 20000, sg = pv >= 0 ? 1 : -1, a = Math.min(Math.abs(pv), 5000);
+    return (sg * Math.log(1 + a / LS) / LMAX + 1) / 2; };
+
+  function draw() {
+    const kn = dragging ? dragKn : knobFromPn(st.getNormalisedValue());
+    const ang = A0 + kn * (A1 - A0);
+    const cx = w / 2, cy = h / 2, r = Math.min(w, h) * 0.36;
+    ctx.clearRect(0, 0, w, h);
+    const arc = (a0, a1, col, lw) => { ctx.beginPath(); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.lineCap = "round";
+      ctx.arc(cx, cy, r, a0 - Math.PI / 2, a1 - Math.PI / 2); ctx.stroke(); };
+    arc(A0, A1, "#252320", 2.5);                              // track
+    const mid = A0 + 0.5 * (A1 - A0);                          // bipolar centre (top)
+    if (Math.abs(ang - mid) > 0.01) arc(Math.min(mid, ang), Math.max(mid, ang), "#c9a96e", 2.5);
+    // ticks
+    for (let i = 0; i < 5; i++) { const t = A0 + (i / 4) * (A1 - A0);
+      const ir = r + 7, or = r + 12;
+      ctx.beginPath(); ctx.lineWidth = 1; ctx.strokeStyle = (i === 2) ? "#8a857d" : "#3e3a34";
+      ctx.moveTo(cx + ir * Math.sin(t), cy - ir * Math.cos(t)); ctx.lineTo(cx + or * Math.sin(t), cy - or * Math.cos(t)); ctx.stroke(); }
+    // indicator dot
+    ctx.beginPath(); ctx.fillStyle = "#c9a96e"; ctx.arc(cx + r * Math.sin(ang), cy - r * Math.cos(ang), 6, 0, 2 * Math.PI); ctx.fill();
+    // value text
+    const v = dispFromKnob(kn);
+    ctx.fillStyle = "#e8e4db"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "300 32px 'Inter'";
+    ctx.fillText(Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1), cx, cy - 4);
+    ctx.fillStyle = "#3e3a34"; ctx.font = "500 11px 'Inter'"; ctx.fillText("HZ", cx, cy + 22);
+  }
+  let dragging = false, dragKn = 0, startY = 0, startKn = 0, fine = false;
+  el.addEventListener("pointerdown", (e) => { dragging = true; fine = e.shiftKey; el.setPointerCapture(e.pointerId);
+    startY = e.clientY; startKn = knobFromPn(st.getNormalisedValue()); dragKn = startKn; st.sliderDragStarted(); });
+  el.addEventListener("pointermove", (e) => { if (!dragging) return;
+    const sens = (fine ? 3000 : 300) * (parseFloat(getComputedStyle(stage).getPropertyValue("--s")) || 1);
+    dragKn = Math.min(1, Math.max(0, startKn + (startY - e.clientY) / sens));
+    st.setNormalisedValue(pnFromKnob(dragKn)); draw(); });
+  el.addEventListener("pointerup", (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); draw(); });
+  el.addEventListener("dblclick", () => { st.setNormalisedValue(0.5); draw(); }); // reset to 0 Hz
+  st.valueChangedEvent.addListener(draw); st.propertiesChangedEvent.addListener(draw);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+  draw();
+  return el;
+}
+
+// ---- preset bar ----------------------------------------------------------
+function presetBar() {
+  const prev = document.createElement("button"); prev.className = "presetbtn"; prev.textContent = "‹"; pos(prev, 36, 71, 20, 20); stage.append(prev);
+  const next = document.createElement("button"); next.className = "presetbtn"; next.textContent = "›"; pos(next, 60, 71, 20, 20); stage.append(next);
+  const nameWrap = document.createElement("div"); nameWrap.className = "preset-name"; pos(nameWrap, 91, 69, 300, 20);
+  const nameInput = document.createElement("input"); nameInput.value = ""; nameWrap.append(nameInput); stage.append(nameWrap);
+  const save = document.createElement("button"); save.className = "txtbtn primary"; save.textContent = "SAVE"; pos(save, 452, 70, 58, 22); stage.append(save);
+  const del = document.createElement("button"); del.className = "txtbtn outline"; del.textContent = "DELETE"; pos(del, 518, 70, 72, 22); stage.append(del);
 
   const fn = (n) => Juce.getNativeFunction(n);
-  const list = fn("presetList"), cur = fn("presetCurrent"), load = fn("presetLoad"),
-        save = fn("presetSave"), del = fn("presetDelete");
-
+  const list = fn("presetList"), cur = fn("presetCurrent"), load = fn("presetLoad"), saveP = fn("presetSave"), delP = fn("presetDelete");
+  let names = [];
   async function refresh() {
-    let names = [];
-    try { names = JSON.parse(await list()); } catch (e) { names = []; }
-    let current = ""; try { current = await cur(); } catch (e) {}
-    sel.innerHTML = "";
-    names.forEach((n) => { const o = $("option", null, n); o.value = n; sel.append(o); });
-    if (current) sel.value = current;
-    name.value = current || "";
+    try { names = JSON.parse(await list()); } catch { names = []; }
+    let c = ""; try { c = await cur(); } catch {}
+    nameInput.value = c;
   }
-  sel.addEventListener("change", async () => { await load(sel.value); name.value = sel.value; });
-  saveBtn.addEventListener("click", async () => {
-    const n = (name.value || sel.value || "Untitled").trim();
-    if (!n) return; await save(n); await refresh(); sel.value = n; name.value = n;
-  });
-  delBtn.addEventListener("click", async () => { if (sel.value) { await del(sel.value); await refresh(); } });
-  await refresh();
+  async function step(d) { if (!names.length) return; let i = names.indexOf(nameInput.value); i = (i + d + names.length) % names.length;
+    await load(names[i]); nameInput.value = names[i]; }
+  prev.addEventListener("click", () => step(-1));
+  next.addEventListener("click", () => step(1));
+  save.addEventListener("click", async () => { const n = (nameInput.value || "Untitled").trim(); if (n) { await saveP(n); await refresh(); nameInput.value = n; } });
+  del.addEventListener("click", async () => { const n = nameInput.value.trim(); if (n) { await delP(n); await refresh(); } });
+  refresh();
 }
 
-function build() {
-  const app = document.getElementById("app");
-  app.innerHTML = "";
-
-  const header = $("header", "app-header");
-  header.append($("div", "brand", "HOLY SHIFTER"), $("div", "vendor", "Heathen Machines"));
-  app.append(header);
-
-  buildPresetBar(app).catch(() => {});
-
-  const order = [], bySec = {};
-  for (const p of params) {
-    if (!bySec[p.section]) { bySec[p.section] = []; order.push(p.section); }
-    bySec[p.section].push(p);
-  }
-
-  const grid = $("div", "panels");
-  for (const sec of order) {
-    const panel = $("section", "panel");
-    panel.append($("h2", "panel-title", sec));
-    const body = $("div", "panel-body");
-    if (sec === "Scale") {
-      body.append(makePiano(bySec[sec]));
-    } else {
-      for (const p of bySec[sec]) {
-        body.append(p.type === "float" ? makeSlider(p) : p.type === "choice" ? makeCombo(p) : makeToggle(p));
-      }
-    }
-    panel.append(body);
-    grid.append(panel);
-  }
-  app.append(grid);
+// ---- L/R Decorrelate (native flag, not a relay) --------------------------
+function decorrelateToggle(x, y, w, h) {
+  const el = add("switch", x, y, w, h);
+  const trk = document.createElement("div"); trk.className = "track"; const dot = document.createElement("div"); dot.className = "dot"; trk.append(dot);
+  const lab = document.createElement("span"); lab.className = "swlabel"; lab.textContent = "L/R Decorr"; lab.style.color = "#c9a96e";
+  el.append(trk, lab);
+  const get = Juce.getNativeFunction("decorrelateGet"), set = Juce.getNativeFunction("decorrelateSet");
+  let on = false;
+  const refresh = () => el.classList.toggle("on", on);
+  get().then((v) => { on = !!v; refresh(); }).catch(() => {});
+  el.addEventListener("click", async () => { on = !on; refresh(); await set(on); });
+  return el;
 }
 
-// Module scripts are deferred, so the DOM is parsed and params.js has run by now.
-build();
+// ---- assemble ------------------------------------------------------------
+presetBar();
+toggleSwitch("warm", 591, 107, 80, 24, "WARM");
+shiftKnob(27, 168, 210, 218);
+
+// spectral panel controls
+piano(258, 185, 400, 42);
+slider("quantizeStrength", 322, 237, 334, 20);
+slider("preserve", 322, 267, 334, 20);
+slider("transients", 322, 297, 130, 18);
+slider("sensitivity", 516, 297, 140, 18);
+const peakSnapEl = toggleSwitch("peakSnap", 258, 319, 170, 16, "Tones Only");
+slider("noiseMix", 322, 340, 130, 16);
+slider("peakSens", 520, 340, 136, 16);
+slider("smear", 322, 358, 343, 20);
+
+// freq modulation
+toggleSwitch("lfoEnabled", 119, 411, 34, 15, "");
+slider("lfoDepth", 75, 431, 430, 22);
+slider("lfoRate", 75, 462, 356, 22);
+toggleSwitch("lfoSync", 451, 462, 75, 24, "Sync");
+combo("lfoShape", 579, 463, 76, 22);
+
+// delay
+toggleSwitch("delayEnabled", 55, 523, 34, 15, "");
+slider("delayTime", 158, 543, 346, 22);
+toggleSwitch("delaySync", 523, 543, 80, 24, "Sync");
+slider("delayFeedback", 94, 577, 238, 22);
+slider("delayDamping", 416, 577, 260, 22);
+const slopeSlider = slider("delaySlope", 76, 611, 256, 22);
+decorrelateToggle(582, 631, 110, 18);
+
+// delay modulation
+toggleSwitch("dlyLfoEnabled", 120, 657, 34, 15, "");
+slider("dlyLfoDepth", 76, 679, 448, 22);
+slider("dlyLfoRate", 76, 709, 356, 22);
+toggleSwitch("dlyLfoSync", 452, 709, 75, 24, "Sync");
+combo("dlyLfoShape", 584, 707, 76, 22);
+
+// mask
+const maskEnEl = toggleSwitch("maskEnabled", 56, 767, 34, 15, "");
+const maskModeEl = combo("maskMode", 88, 784, 90, 22);
+const maskT = slider("maskTransition", 284, 787, 191, 22);
+const maskLo = slider("maskLowFreq", 62, 819, 301, 22);
+const maskHi = slider("maskHighFreq", 405, 819, 261, 22);
+
+// mix
+slider("dryWet", 108, 879, 545, 22);
+
+// ---- mode dimming (Spectral-only controls greyed in Classic) -------------
+function updateMode(idx) {
+  const classic = (idx === 0);
+  // spectral panel + its labels + mask + slope dim in Classic mode (mirrors Visage)
+  panel.classList.toggle("dimmed", classic);
+  spectralHdr.classList.toggle("dim", classic);
+  specLabels.forEach((l) => l.classList.toggle("dim", classic));
+  // mask section
+  maskStripEl.style.opacity = classic ? ".5" : "1";
+  [maskEnEl, maskModeEl, maskT, maskLo, maskHi, ...maskLabels].forEach((e) => e && e.classList.toggle("dimmed", classic));
+  // delay slope is spectral-only
+  if (slopeSlider) slopeSlider.classList.toggle("dimmed", classic);
+  if (slopeLbl) slopeLbl.classList.toggle("dim", classic);
+}
+
+// Mode selector created LAST so its initial dimming pass sees every control above.
+segmented("processingMode", 28, 106, 220, 26, ["CLASSIC", "SPECTRAL"], updateMode);

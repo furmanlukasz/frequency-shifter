@@ -214,6 +214,13 @@ if(HOLY_SHIFTER_USE_WEBVIEW)
     target_link_libraries(FrequencyShifter PRIVATE juce::juce_gui_extra)
     set(HOLY_WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web/public")
     file(GLOB HOLY_WEB_ASSETS CONFIGURE_DEPENDS "${HOLY_WEB_DIR}/*")
+    # Reuse the existing artwork + fonts (already in-repo for the Visage build) rather than
+    # committing duplicate copies under web/public/. Served by basename via the ResourceProvider.
+    list(APPEND HOLY_WEB_ASSETS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/pagan-background.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/heathen-machines-logo.png")
+    file(GLOB HOLY_WEB_FONTS "${CMAKE_CURRENT_SOURCE_DIR}/fonts/*.ttf")
+    list(APPEND HOLY_WEB_ASSETS ${HOLY_WEB_FONTS})
     if(HOLY_WEB_ASSETS)
         juce_add_binary_data(HolyShifterWebAssets SOURCES ${HOLY_WEB_ASSETS})
         target_link_libraries(FrequencyShifter PRIVATE HolyShifterWebAssets)

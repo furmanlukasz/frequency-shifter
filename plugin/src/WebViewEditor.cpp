@@ -118,6 +118,16 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
                   if (a.size() > 0) processorRef.getPresetManager().deletePreset(a[0].toString());
                   complete(juce::var(true));
               })
+          // --- L/R Decorrelate (a processor flag, not an APVTS parameter) ---
+          .withNativeFunction(juce::Identifier("decorrelateGet"),
+              [this](const juce::Array<juce::var>&, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
+                  complete(juce::var(processorRef.getStereoDecorrelate()));
+              })
+          .withNativeFunction(juce::Identifier("decorrelateSet"),
+              [this](const juce::Array<juce::var>& a, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
+                  if (a.size() > 0) processorRef.setStereoDecorrelate((bool) a[0]);
+                  complete(juce::var(true));
+              })
           .withResourceProvider([this](const auto& url) { return getResource(url); })),
       shiftHzAtt (*processorRef.getValueTreeState().getParameter("shiftHz"), shiftHzRelay, nullptr),
       quantizeStrengthAtt (*processorRef.getValueTreeState().getParameter("quantizeStrength"), quantizeStrengthRelay, nullptr),
@@ -172,9 +182,13 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
       warmAtt (*processorRef.getValueTreeState().getParameter("warm"), warmRelay, nullptr) {
     addAndMakeVisible(webView);
     webView.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
+    // The web UI replicates the Visage design at a fixed 700x928 canvas and scales to fit.
+    // Lock the resize to that aspect so the layout stays pixel-faithful at any size.
     setResizable(true, true);
-    setResizeLimits(640, 520, 2400, 1800);
-    setSize(900, 760);
+    setResizeLimits(420, 557, 1750, 2320);
+    if (auto* c = getConstrainer())
+        c->setFixedAspectRatio(700.0 / 928.0);
+    setSize(700, 928);
 }
 
 WebViewEditor::~WebViewEditor() = default;
