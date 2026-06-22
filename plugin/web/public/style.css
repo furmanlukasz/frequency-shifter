@@ -1,0 +1,82 @@
+/* Holy Shifter — resizable, responsive WebView UI (Heathen Machines palette). */
+:root {
+  --bg:        #0a0a0c;
+  --panel:     rgba(22, 22, 26, 0.72);
+  --panel-bd:  #2a2a30;
+  --accent:    #c9a96e;          /* gold */
+  --accent-dim:#8a7548;
+  --text:      #e8e4da;
+  --muted:     #8d8a82;
+  --track:     #3a3a42;
+  --radius:    10px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background:
+    radial-gradient(120% 90% at 50% -10%, #16131a 0%, var(--bg) 60%) fixed;
+  color: var(--text);
+  font: 13px/1.4 -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-y: auto;
+}
+#app { min-height: 100%; padding: clamp(10px, 2vw, 24px); display: flex; flex-direction: column; gap: 14px; }
+
+/* Header */
+.app-header { display: flex; align-items: baseline; gap: 14px; padding-bottom: 6px; border-bottom: 1px solid var(--panel-bd); }
+.brand  { font-size: clamp(18px, 3.2vw, 30px); font-weight: 600; letter-spacing: .14em; color: var(--accent); }
+.vendor { font-size: clamp(10px, 1.4vw, 13px); color: var(--muted); letter-spacing: .22em; text-transform: uppercase; }
+
+/* Preset bar */
+.presetbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.preset-lbl { color: var(--muted); text-transform: uppercase; letter-spacing: .15em; font-size: 10px; }
+.preset-select, .preset-name { background: #14141a; color: var(--text); border: 1px solid var(--panel-bd);
+  border-radius: 6px; padding: 5px 8px; font: inherit; min-width: 0; }
+.preset-select { flex: 1 1 160px; }
+.preset-name   { flex: 1 1 120px; }
+.pbtn { background: #1b1b22; color: var(--text); border: 1px solid var(--panel-bd); border-radius: 6px;
+  padding: 5px 12px; cursor: pointer; font: inherit; }
+.pbtn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Responsive panel grid — this is what makes the UI reflow as you resize. */
+.panels { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 14px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--panel-bd); border-radius: var(--radius);
+  padding: 14px 16px; backdrop-filter: blur(2px); }
+.panel-title { margin: 0 0 12px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--accent); font-weight: 600; }
+.panel-body { display: flex; flex-direction: column; gap: 14px; }
+
+/* Slider */
+.ctl-slider .ctl-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+.ctl-label { color: var(--text); }
+.ctl-val   { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 12px; }
+input.slider { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px;
+  background: var(--track); outline: none; cursor: pointer; }
+input.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--accent); border: 2px solid #1a1a1f; box-shadow: 0 0 0 1px var(--accent-dim); }
+input.slider:hover::-webkit-slider-thumb { background: #e0c488; }
+
+/* Combo */
+.ctl-combo { display: flex; flex-direction: column; gap: 5px; }
+.select { background: #14141a; color: var(--text); border: 1px solid var(--panel-bd); border-radius: 6px;
+  padding: 6px 8px; font: inherit; width: 100%; }
+.select:hover { border-color: var(--accent); }
+
+/* Toggle */
+.ctl-toggle { background: #18181e; color: var(--muted); border: 1px solid var(--panel-bd); border-radius: 6px;
+  padding: 8px 10px; cursor: pointer; font: inherit; text-align: left; transition: all .12s; }
+.ctl-toggle:hover { border-color: var(--accent-dim); }
+.ctl-toggle.on { background: linear-gradient(180deg, #d9bd82, var(--accent)); color: #14110a; border-color: var(--accent); font-weight: 600; }
+
+/* Piano keyboard (12 scale-note toggles) */
+.piano { display: flex; gap: 3px; flex-wrap: wrap; }
+.key { flex: 1 1 0; min-width: 26px; height: 56px; border-radius: 0 0 5px 5px; cursor: pointer;
+  font-size: 10px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 5px;
+  border: 1px solid #000; transition: all .1s; }
+.key.white { background: #ddd6c8; color: #333; }
+.key.black { background: #1c1c22; color: #aaa; height: 44px; }
+.key.on { background: linear-gradient(180deg, #e0c488, var(--accent)); color: #14110a; font-weight: 700;
+  box-shadow: 0 0 8px rgba(201,169,110,.5); }

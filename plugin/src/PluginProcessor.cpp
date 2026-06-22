@@ -1,5 +1,9 @@
 #include "PluginProcessor.h"
-#include "VisageHostEditor.h"
+#if HOLY_SHIFTER_USE_WEBVIEW
+ #include "WebViewEditor.h"
+#else
+ #include "VisageHostEditor.h"
+#endif
 #include "dsp/Scales.h"
 
 #ifndef M_PI
@@ -2284,7 +2288,11 @@ double FrequencyShifterProcessor::getTailLengthSeconds() const
 
 juce::AudioProcessorEditor* FrequencyShifterProcessor::createEditor()
 {
+#if HOLY_SHIFTER_USE_WEBVIEW
+    return new WebViewEditor(*this);
+#else
     return new VisageHostEditor(*this);
+#endif
 }
 
 void FrequencyShifterProcessor::getStateInformation(juce::MemoryBlock& destData)
