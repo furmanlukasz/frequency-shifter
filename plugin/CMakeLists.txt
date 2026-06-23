@@ -39,6 +39,14 @@ else()
     set(HOLY_PLUGIN_CODE Fshf)
 endif()
 
+# On iOS the WebView UI *is* the product (there's no Visage build to coexist with), so ship
+# under the real "Holy Shifter" name/code instead of the desktop A/B "WV" suffix. Desktop
+# WebView builds keep "Holy Shifter WV" so they install side-by-side with the Visage release.
+if(HOLY_IS_IOS)
+    set(HOLY_PRODUCT_NAME "Holy Shifter")
+    set(HOLY_PLUGIN_CODE Fshf)
+endif()
+
 # macOS deployment target (for M1 compatibility). On iOS the arch + deployment target
 # come from the toolchain/command line, so only set the desktop-macOS values here.
 if(APPLE AND NOT HOLY_IS_IOS)
