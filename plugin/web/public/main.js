@@ -212,27 +212,59 @@ function shiftKnob(x, y, w, h) {
 
 // ---- preset bar ----------------------------------------------------------
 function presetBar() {
-  const prev = document.createElement("button"); prev.className = "presetbtn"; prev.textContent = "‹"; pos(prev, 36, 71, 20, 20); stage.append(prev);
-  const next = document.createElement("button"); next.className = "presetbtn"; next.textContent = "›"; pos(next, 60, 71, 20, 20); stage.append(next);
-  const nameWrap = document.createElement("div"); nameWrap.className = "preset-name"; pos(nameWrap, 91, 69, 300, 20);
-  const nameInput = document.createElement("input"); nameInput.value = ""; nameWrap.append(nameInput); stage.append(nameWrap);
-  const save = document.createElement("button"); save.className = "txtbtn primary"; save.textContent = "SAVE"; pos(save, 452, 70, 58, 22); stage.append(save);
-  const del = document.createElement("button"); del.className = "txtbtn outline"; del.textContent = "DELETE"; pos(del, 518, 70, 72, 22); stage.append(del);
+  const mk = (cls, txt, x, y, w, h) => { const b = document.createElement("button"); b.className = cls; b.textContent = txt; pos(b, x, y, w, h); stage.append(b); return b; };
+  const prev = mk("presetbtn", "‹", 36, 71, 20, 20);
+  const next = mk("presetbtn", "›", 60, 71, 20, 20);
+  const nameEl = add("preset-name", 91, 69, 300, 22);
+  const dd = add("preset-dd", 91, 93, 250); dd.style.height = "auto"; dd.style.zIndex = "100";
+  const save = mk("txtbtn primary", "SAVE", 452, 70, 58, 22);
+  const del = mk("txtbtn outline", "DELETE", 518, 70, 72, 22);
 
   const fn = (n) => Juce.getNativeFunction(n);
   const list = fn("presetList"), cur = fn("presetCurrent"), load = fn("presetLoad"), saveP = fn("presetSave"), delP = fn("presetDelete");
-  let names = [];
+  let names = [], current = "";
+  const setName = (n) => { current = n || ""; nameEl.textContent = current || "—"; };
+
   async function refresh() {
     try { names = JSON.parse(await list()); } catch { names = []; }
-    let c = ""; try { c = await cur(); } catch {}
-    nameInput.value = c;
+    try { current = await cur(); } catch {}
+    setName(current);
   }
-  async function step(d) { if (!names.length) return; let i = names.indexOf(nameInput.value); i = (i + d + names.length) % names.length;
-    await load(names[i]); nameInput.value = names[i]; }
-  prev.addEventListener("click", () => step(-1));
-  next.addEventListener("click", () => step(1));
-  save.addEventListener("click", async () => { const n = (nameInput.value || "Untitled").trim(); if (n) { await saveP(n); await refresh(); nameInput.value = n; } });
-  del.addEventListener("click", async () => { const n = nameInput.value.trim(); if (n) { await delP(n); await refresh(); } });
+  const closeDD = () => dd.classList.remove("open");
+  function openDD() {
+    dd.innerHTML = "";
+    if (!names.length) { const e = document.createElement("div"); e.className = "preset-dd-item"; e.textContent = "(no presets)"; dd.append(e); }
+    names.forEach((n) => {
+      const it = document.createElement("div"); it.className = "preset-dd-item" + (n === current ? " current" : ""); it.textContent = n;
+      it.addEventListener("click", async (e) => { e.stopPropagation(); await load(n); setName(n); closeDD(); });
+      dd.append(it);
+    });
+    dd.classList.add("open");
+  }
+  nameEl.addEventListener("click", (e) => { e.stopPropagation(); dd.classList.contains("open") ? closeDD() : openDD(); });
+  document.addEventListener("click", closeDD);
+
+  async function step(d) { if (!names.length) return; let i = names.indexOf(current); if (i < 0) i = 0; i = (i + d + names.length) % names.length; await load(names[i]); setName(names[i]); }
+  prev.addEventListener("click", (e) => { e.stopPropagation(); step(-1); });
+  next.addEventListener("click", (e) => { e.stopPropagation(); step(1); });
+
+  // SAVE -> inline rename field (the name label itself is a dropdown, not editable)
+  save.addEventListener("click", (e) => {
+    e.stopPropagation(); closeDD();
+    nameEl.classList.add("editing"); nameEl.textContent = "";
+    const inp = document.createElement("input"); inp.className = "preset-edit"; inp.value = current || "Untitled";
+    nameEl.append(inp); inp.focus(); inp.select();
+    let done = false;
+    const finish = async (ok) => {
+      if (done) return; done = true; nameEl.classList.remove("editing");
+      const v = inp.value.trim(); setName(current);
+      if (ok && v) { await saveP(v); await refresh(); setName(v); }
+    };
+    inp.addEventListener("click", (ev) => ev.stopPropagation());
+    inp.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); finish(true); } else if (ev.key === "Escape") finish(false); });
+    inp.addEventListener("blur", () => finish(false));
+  });
+  del.addEventListener("click", async (e) => { e.stopPropagation(); if (current) { await delP(current); await refresh(); } });
   refresh();
 }
 

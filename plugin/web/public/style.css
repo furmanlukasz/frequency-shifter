@@ -12,10 +12,13 @@
   --bg:#0a0a0c; --text:#e8e4db; --textsec:#8a857d; --muted:#3e3a34;
   --accent:#c9a96e; --accent-dim:#6b5d3d; --track:#252320;
 }
-* { box-sizing:border-box; margin:0; padding:0; }
-html,body { width:100%; height:100%; background:var(--bg); overflow:hidden;
+* { box-sizing:border-box; margin:0; padding:0; -webkit-user-select:none; user-select:none; }
+html,body { width:100%; height:100%; background:var(--bg); overflow:hidden; cursor:default;
   font-family:'Inter',-apple-system,system-ui,sans-serif; color:var(--text);
   display:flex; align-items:center; justify-content:center; -webkit-font-smoothing:antialiased; }
+/* re-enable selection/caret only where the user actually types */
+input, .preset-edit { -webkit-user-select:text; user-select:text; cursor:text; }
+.logo { -webkit-user-drag:none; pointer-events:none; }
 
 #stage {
   position:relative; width:700px; height:928px; flex:0 0 auto;
@@ -58,9 +61,19 @@ html,body { width:100%; height:100%; background:var(--bg); overflow:hidden;
 .presetbtn { display:flex; align-items:center; justify-content:center; cursor:pointer;
   color:var(--textsec); font-size:14px; border:none; background:transparent; }
 .presetbtn:hover { color:var(--accent); }
-.preset-name { display:flex; align-items:center; cursor:pointer; font-size:12px; color:var(--text);
-  background:transparent; border:none; outline:none; }
-.preset-name input { width:100%; background:transparent; border:none; color:var(--text); font:inherit; outline:none; }
+.preset-name { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--text);
+  overflow:hidden; white-space:nowrap; }
+.preset-name::after { content:"▾"; color:var(--textsec); font-size:9px; }
+.preset-name.editing::after { content:""; }
+.preset-edit { width:100%; background:#14141a; border:1px solid var(--accent); border-radius:4px;
+  color:var(--text); font:inherit; outline:none; padding:0 4px; }
+/* preset dropdown */
+.preset-dd { position:absolute; display:none; background:#0e0e10; border:1px solid #1e1e22; border-radius:6px;
+  max-height:300px; overflow-y:auto; z-index:50; box-shadow:0 10px 28px rgba(0,0,0,.55); }
+.preset-dd.open { display:block; }
+.preset-dd-item { padding:6px 12px; font-size:12px; color:var(--text); cursor:pointer; white-space:nowrap; }
+.preset-dd-item:hover { background:#1b1b22; color:var(--accent); }
+.preset-dd-item.current { color:var(--accent); }
 .txtbtn { display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:10px;
   font-weight:500; letter-spacing:.05em; border-radius:4px; }
 .txtbtn.primary { background:var(--accent); color:#14110a; }
