@@ -249,6 +249,55 @@ jobs:
         path: plugin/artifacts/*.zip
         if-no-files-found: warn
 
+  # macOS WebView build — the ported juce::WebBrowserComponent (WKWebView) UI as VST3 + AU
+  # ("Holy Shifter WV"), so the WebView variant is downloadable for macOS too. Non-gating.
+  build-macos-webview:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Configure CMake (WebView)
+      working-directory: plugin
+      run: |
+        cmake -B build-wv \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DHOLY_SHIFTER_USE_WEBVIEW=ON \
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
+
+    - name: Build (WebView)
+      working-directory: plugin
+      run: cmake --build build-wv --config Release --parallel
+
+    - name: Package VST3 + AU
+      working-directory: plugin
+      run: |
+        mkdir -p artifacts/VST3 artifacts/AU
+        cp -R build-wv/FrequencyShifter_artefacts/Release/VST3/*.vst3 artifacts/VST3/ || true
+        cp -R build-wv/FrequencyShifter_artefacts/Release/AU/*.component artifacts/AU/ || true
+
+    - name: Upload VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: HolyShifter-WV-macOS-VST3
+        path: plugin/artifacts/VST3/
+        if-no-files-found: warn
+
+    - name: Upload AU
+      uses: actions/upload-artifact@v4
+      with:
+        name: HolyShifter-WV-macOS-AU
+        path: plugin/artifacts/AU/
+        if-no-files-found: warn
+
   # Collect macOS artifacts into a release package for main-branch pushes.
   package:
     needs: [build-macos, dsp-tests]
