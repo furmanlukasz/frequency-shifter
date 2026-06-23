@@ -152,8 +152,17 @@ function piano(x, y, w, h) {
 function shiftKnob(x, y, w, h) {
   const el = add("knob", x, y, w, h);
   const cv = document.createElement("canvas"); el.append(cv);
-  const SS = 3; cv.width = w * SS; cv.height = h * SS;
-  const ctx = cv.getContext("2d"); ctx.scale(SS, SS);
+  cv.style.width = w + "px"; cv.style.height = h + "px";
+  const ctx = cv.getContext("2d");
+  // Size the backing store to the REAL on-screen pixels (stage zoom × devicePixelRatio)
+  // so the knob stays crisp when the window is resized; draw() works in design coords.
+  function sizeCanvas() {
+    const s = parseFloat(getComputedStyle(stage).getPropertyValue("--s")) || 1;
+    const sf = Math.min(8, Math.max(1, s * (window.devicePixelRatio || 1)));
+    cv.width = Math.round(w * sf); cv.height = Math.round(h * sf);
+    ctx.setTransform(sf, 0, 0, sf, 0, 0);
+  }
+  sizeCanvas();
   const st = Juce.getSliderState("shiftHz");
   const A0 = -2.35619, A1 = 2.35619, LS = 10, LMAX = Math.log(1 + 5000 / LS);
   const dispFromKnob = (kn) => { const s = kn * 2 - 1, sg = s >= 0 ? 1 : -1, a = Math.abs(s); return sg * LS * (Math.exp(a * LMAX) - 1); };
@@ -189,12 +198,13 @@ function shiftKnob(x, y, w, h) {
   el.addEventListener("pointerdown", (e) => { dragging = true; fine = e.shiftKey; el.setPointerCapture(e.pointerId);
     startY = e.clientY; startKn = knobFromPn(st.getNormalisedValue()); dragKn = startKn; st.sliderDragStarted(); });
   el.addEventListener("pointermove", (e) => { if (!dragging) return;
-    const sens = (fine ? 3000 : 300) * (parseFloat(getComputedStyle(stage).getPropertyValue("--s")) || 1);
+    const sens = fine ? 2500 : 250;
     dragKn = Math.min(1, Math.max(0, startKn + (startY - e.clientY) / sens));
     st.setNormalisedValue(pnFromKnob(dragKn)); draw(); });
   el.addEventListener("pointerup", (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); draw(); });
   el.addEventListener("dblclick", () => { st.setNormalisedValue(0.5); draw(); }); // reset to 0 Hz
   st.valueChangedEvent.addListener(draw); st.propertiesChangedEvent.addListener(draw);
+  window.addEventListener("resize", () => { sizeCanvas(); draw(); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   draw();
   return el;
