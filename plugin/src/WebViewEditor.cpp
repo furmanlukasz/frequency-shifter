@@ -3,6 +3,7 @@
 #include "BinaryData.h"
 #include <cstring>
 #include <vector>
+#include <iostream>
 
 namespace {
 // Resolve a request path to a real filename; root -> index.html; strip query.
@@ -10,10 +11,6 @@ juce::String resolveFilename(const juce::String& url) {
     auto path = url.upToFirstOccurrenceOf("?", false, false);
     if (path.isEmpty() || path == "/") return "index.html";
     return path.fromFirstOccurrenceOf("/", false, false);
-}
-// juce_add_binary_data mangles "main.js" -> "main_js".
-juce::String filenameToResourceName(const juce::String& f) {
-    return f.replaceCharacter('.', '_').replaceCharacter('-', '_');
 }
 const char* mimeForExtension(const juce::String& ext) {
     if (ext == "html") return "text/html";
@@ -128,6 +125,13 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
                   if (a.size() > 0) processorRef.setStereoDecorrelate((bool) a[0]);
                   complete(juce::var(true));
               })
+          // Surface JS console/errors to native stderr (headless diagnosis).
+          .withNativeFunction(juce::Identifier("jsLog"),
+              [](const juce::Array<juce::var>& a, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
+                  juce::String m; for (auto& v : a) m += v.toString() + " ";
+                  std::cerr << "[webui] " << m << std::endl;
+                  complete(juce::var());
+              })
           .withResourceProvider([this](const auto& url) { return getResource(url); })),
       shiftHzAtt (*processorRef.getValueTreeState().getParameter("shiftHz"), shiftHzRelay, nullptr),
       quantizeStrengthAtt (*processorRef.getValueTreeState().getParameter("quantizeStrength"), quantizeStrengthRelay, nullptr),
@@ -198,14 +202,20 @@ void WebViewEditor::resized() { webView.setBounds(getLocalBounds()); }
 std::optional<juce::WebBrowserComponent::Resource>
 WebViewEditor::getResource(const juce::String& url) const {
     const auto filename = resolveFilename(url);
-    const auto resName  = filenameToResourceName(filename);
     const auto ext      = filename.fromLastOccurrenceOf(".", false, false);
-    int size = 0;
-    if (const char* data = BinaryData::getNamedResource(resName.toRawUTF8(), size)) {
-        std::vector<std::byte> bytes(static_cast<size_t>(size));
-        std::memcpy(bytes.data(), data, static_cast<size_t>(size));
-        return juce::WebBrowserComponent::Resource{ std::move(bytes), juce::String(mimeForExtension(ext)) };
+    // Match by ORIGINAL filename — juce_add_binary_data mangles names unpredictably
+    // (e.g. "pagan-background.png" -> "paganbackground_png"), so don't guess the symbol.
+    for (int i = 0; i < BinaryData::namedResourceListSize; ++i) {
+        if (filename == BinaryData::originalFilenames[i]) {
+            int size = 0;
+            if (const char* data = BinaryData::getNamedResource(BinaryData::namedResourceList[i], size)) {
+                std::vector<std::byte> bytes(static_cast<size_t>(size));
+                std::memcpy(bytes.data(), data, static_cast<size_t>(size));
+                return juce::WebBrowserComponent::Resource{ std::move(bytes), juce::String(mimeForExtension(ext)) };
+            }
+        }
     }
+    std::cerr << "[webui] resource NOT FOUND: " << filename << std::endl;
     return std::nullopt;
 }
 #endif // HOLY_SHIFTER_USE_WEBVIEW

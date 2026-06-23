@@ -3,16 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self' juce:; img-src 'self' juce: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self';" />
   <title>Holy Shifter</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app">Loading…</div>
   <!-- HOLY_PARAMS manifest (generated from PluginProcessor.cpp) -->
-  <script src="params.js"></script>
+  <script src="./params.js"></script>
   <!-- ES module: imports ./juce.js (JUCE native bridge) -->
-  <script type="module" src="main.js"></script>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>

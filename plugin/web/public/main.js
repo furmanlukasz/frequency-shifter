@@ -2,6 +2,12 @@
 // scaled to fit). Big rotary shift knob + pagan artwork + the exact section layout.
 import * as Juce from "./juce.js";
 
+// Surface JS errors + status to native stderr (so the UI can be debugged headlessly).
+const nlog = (...a) => { try { Juce.getNativeFunction("jsLog")(a.map(String).join(" ")); } catch (e) {} };
+window.addEventListener("error", (e) => nlog("JS ERROR:", e.message, "@", (e.filename || "") + ":" + e.lineno));
+window.addEventListener("unhandledrejection", (e) => nlog("PROMISE REJECT:", (e && e.reason && e.reason.message) || (e && e.reason)));
+nlog("main.js start; HOLY_PARAMS =", (window.HOLY_PARAMS || []).length);
+
 const W = 700, H = 928;
 const NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const BLACK = new Set([1, 3, 6, 8, 10]);
@@ -300,3 +306,5 @@ function updateMode(idx) {
 
 // Mode selector created LAST so its initial dimming pass sees every control above.
 segmented("processingMode", 28, 106, 220, 26, ["CLASSIC", "SPECTRAL"], updateMode);
+
+nlog("UI assembled OK; stage children =", stage.childElementCount);
