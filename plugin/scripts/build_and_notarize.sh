@@ -30,9 +30,11 @@ APP_SIGNING_ID="Developer ID Application: benjamin vaughan (${TEAM_ID})"
 INSTALLER_SIGNING_ID="Developer ID Installer: benjamin vaughan (${TEAM_ID})"
 NOTARY_PROFILE="notary-profile"
 
-PLUGIN_NAME="Holy Shifter v107"
+# NOTE: PLUGIN_NAME must match PRODUCT_NAME in CMakeLists.txt (currently "Holy Shifter",
+# no version suffix). The built bundles are "${PLUGIN_NAME}.vst3" / ".component".
+PLUGIN_NAME="Holy Shifter"
 PKG_IDENTIFIER="com.harmonictools.frequencyshifter"
-PKG_VERSION="1.0.7"
+PKG_VERSION="1.0.8"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"

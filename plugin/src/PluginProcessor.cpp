@@ -1,5 +1,9 @@
 #include "PluginProcessor.h"
-#include "VisageHostEditor.h"
+#if HOLY_SHIFTER_USE_WEBVIEW
+ #include "WebViewEditor.h"
+#else
+ #include "VisageHostEditor.h"
+#endif
 #include "dsp/Scales.h"
 
 #ifndef M_PI
@@ -49,6 +53,9 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
     parameters.addParameterListener(PARAM_PRESERVE, this);
     parameters.addParameterListener(PARAM_TRANSIENTS, this);
     parameters.addParameterListener(PARAM_SENSITIVITY, this);
+    parameters.addParameterListener(PARAM_PEAK_SNAP, this);
+    parameters.addParameterListener(PARAM_NOISE_MIX, this);
+    parameters.addParameterListener(PARAM_PEAK_SENS, this);
     parameters.addParameterListener(PARAM_PROCESSING_MODE, this);
     parameters.addParameterListener(PARAM_WARM, this);
 
@@ -66,6 +73,7 @@ FrequencyShifterProcessor::FrequencyShifterProcessor()
 
 FrequencyShifterProcessor::~FrequencyShifterProcessor()
 {
+    cancelPendingUpdate();  // ensure no deferred latency callback fires during teardown
     parameters.removeParameterListener(PARAM_SHIFT_HZ, this);
     parameters.removeParameterListener(PARAM_QUANTIZE_STRENGTH, this);
     parameters.removeParameterListener(PARAM_ROOT_NOTE, this);
@@ -101,6 +109,9 @@ FrequencyShifterProcessor::~FrequencyShifterProcessor()
     parameters.removeParameterListener(PARAM_PRESERVE, this);
     parameters.removeParameterListener(PARAM_TRANSIENTS, this);
     parameters.removeParameterListener(PARAM_SENSITIVITY, this);
+    parameters.removeParameterListener(PARAM_PEAK_SNAP, this);
+    parameters.removeParameterListener(PARAM_NOISE_MIX, this);
+    parameters.removeParameterListener(PARAM_PEAK_SENS, this);
     parameters.removeParameterListener(PARAM_PROCESSING_MODE, this);
     parameters.removeParameterListener(PARAM_WARM, this);
 
@@ -491,6 +502,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout FrequencyShifterProcessor::c
         50.0f,
         juce::AudioParameterFloatAttributes().withLabel("%")));
 
+    // === Peak-region snapping + sines/noise split (Spectral mode) ===
+
+    // PEAK SNAP: snap only tonal peaks (+ their lobes); pass non-peak "noise" through.
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ PARAM_PEAK_SNAP, 1 },
+        "Tones Only",
+        false));  // Default off => legacy per-bin snapping (current behaviour)
+
+    // NOISE: how much of the non-peak broadband residual passes through (0-100%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_NOISE_MIX, 1 },
+        "Texture",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
+        70.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    // PEAK SENS: peak-detection threshold — higher = more of the spectrum counts as tonal (0-100%)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ PARAM_PEAK_SENS, 1 },
+        "Density",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
+        50.0f,
+        juce::AudioParameterFloatAttributes().withLabel("%")));
+
     // Processing mode: Classic (Hilbert) vs Spectral (FFT)
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{ PARAM_PROCESSING_MODE, 1 },
@@ -699,6 +734,25 @@ void FrequencyShifterProcessor::parameterChanged(const juce::String& parameterID
         if (quantizer)
             quantizer->setTransientSensitivity(newValue / 100.0f);
     }
+    else if (parameterID == PARAM_PEAK_SNAP)
+    {
+        bool on = newValue > 0.5f;
+        peakSnapEnabled.store(on);
+        if (quantizer)
+            quantizer->setPeakSnap(on);
+    }
+    else if (parameterID == PARAM_NOISE_MIX)
+    {
+        noiseMix.store(newValue / 100.0f);
+        if (quantizer)
+            quantizer->setNoiseMix(newValue / 100.0f);
+    }
+    else if (parameterID == PARAM_PEAK_SENS)
+    {
+        peakSensitivity.store(newValue / 100.0f);
+        if (quantizer)
+            quantizer->setPeakSensitivity(newValue / 100.0f);
+    }
     else if (parameterID == PARAM_PROCESSING_MODE)
     {
         int newMode = static_cast<int>(newValue);
@@ -812,6 +866,27 @@ void FrequencyShifterProcessor::getBlendParameters(float smearMsValue, int& fftS
     crossfade = 0.0f;
 }
 
+void FrequencyShifterProcessor::requestLatency(int latencySamples)
+{
+    // setLatencySamples() notifies the host synchronously; from the audio thread that can
+    // block on a WaitableEvent (the pluginval Automation hang on mode changes). Apply it
+    // directly only on the message thread; otherwise defer it to the message thread.
+    if (juce::MessageManager::existsAndIsCurrentThread())
+        setLatencySamples(latencySamples);
+    else
+    {
+        pendingLatencySamples.store(latencySamples);
+        triggerAsyncUpdate();
+    }
+}
+
+void FrequencyShifterProcessor::handleAsyncUpdate()
+{
+    const int latency = pendingLatencySamples.exchange(-1);
+    if (latency >= 0)
+        setLatencySamples(latency);
+}
+
 void FrequencyShifterProcessor::reinitializeDsp()
 {
     // Get FFT size based on SMEAR setting (always snaps to nearest valid size)
@@ -864,7 +939,9 @@ void FrequencyShifterProcessor::reinitializeDsp()
 
     // Reset LFO phase and depth smoother
     lfoPhase = 0.0;
+    dlyLfoPhase = 0.0;
     lastRandomValue = 0.0f;
+    wasPlaying = false;  // force a retrigger on the first play after (re)prepare
     smoothedLfoDepth          = lfoDepth.load();
     smoothedShiftHz           = shiftHz.load();
     smoothedQuantizeStrength  = quantizeStrength.load();
@@ -1065,7 +1142,7 @@ void FrequencyShifterProcessor::reinitializeDsp()
 
     // Report latency based on current mode
     int currentMode = processingMode.load();
-    setLatencySamples(currentMode == 0 ? CLASSIC_MODE_LATENCY : MAX_FFT_SIZE);
+    requestLatency(currentMode == 0 ? CLASSIC_MODE_LATENCY : MAX_FFT_SIZE);
     needsReinit.store(false);
 }
 
@@ -1189,6 +1266,8 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
 
     // Read host tempo for tempo sync
     double currentBpm = 120.0;  // Fallback
+    bool   isPlaying = false;
+    double ppqPosition = 0.0;
     if (auto* playHead = getPlayHead())
     {
         if (auto position = playHead->getPosition())
@@ -1197,9 +1276,26 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
             {
                 currentBpm = *tempo;
             }
+            isPlaying = position->getIsPlaying();
+            if (auto ppq = position->getPpqPosition())
+            {
+                ppqPosition = *ppq;
+            }
         }
     }
     hostBpm.store(currentBpm);
+
+    // Transport-aware reset: when playback starts (stopped -> playing), retrigger the
+    // free-running LFOs to phase 0 so they begin at the top each time you hit play.
+    // Synced LFOs are additionally bar-locked to the host position below, so they line
+    // up to the bar too. Degrades gracefully with no transport (e.g. standalone):
+    // isPlaying stays false and the LFOs free-run exactly as before.
+    if (isPlaying && !wasPlaying)
+    {
+        lfoPhase = 0.0;
+        dlyLfoPhase = 0.0;
+    }
+    wasPlaying = isPlaying;
 
     // Calculate actual delay time (either from TIME parameter or tempo sync)
     float currentDelayTimeMs;
@@ -1228,6 +1324,16 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
             double secondsPerBeat = 60.0 / currentBpm;
             double secondsPerCycle = beatsPerCycle * secondsPerBeat;
             lfoFreqHz = 1.0 / secondsPerCycle;
+
+            // PPQ phase-lock: while the transport is playing, anchor the synced LFO phase
+            // to the host's musical position so it is bar-aligned and deterministic (the
+            // same section always modulates identically; phase is 0 at the bar line). While
+            // stopped it free-runs from the accumulator so it still moves for sound design.
+            if (isPlaying)
+            {
+                double cyclePhase = ppqPosition / beatsPerCycle;
+                lfoPhase = cyclePhase - std::floor(cyclePhase);
+            }
         }
         else
         {
@@ -1314,8 +1420,11 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         lfoPhase = lfoPhase - std::floor(lfoPhase);  // Wrap to 0-1
     }
 
-    // Final modulated shift value
-    const float currentShiftHz = baseShiftHz + lfoModulationHz;
+    // Final modulated shift value. Guard against a non-finite LFO modulation (Degrees-mode
+    // pow(2, cents/1200) overflows to Inf at extreme LFO depth) poisoning the shifters.
+    float currentShiftHz = baseShiftHz + lfoModulationHz;
+    if (! std::isfinite(currentShiftHz))
+        currentShiftHz = baseShiftHz;
 
     // === Delay Time LFO Calculation ===
     // Independent LFO that modulates delay time for dub/tape wobble effects
@@ -1338,6 +1447,13 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
             double secondsPerBeat = 60.0 / currentBpm;
             double secondsPerCycle = beatsPerCycle * secondsPerBeat;
             dlyLfoFreqHz = 1.0 / secondsPerCycle;
+
+            // PPQ phase-lock while playing (bar-aligned, deterministic) — see main LFO.
+            if (isPlaying)
+            {
+                double cyclePhase = ppqPosition / beatsPerCycle;
+                dlyLfoPhase = cyclePhase - std::floor(cyclePhase);
+            }
         }
         else
         {
@@ -1422,7 +1538,7 @@ void FrequencyShifterProcessor::processBlock(juce::AudioBuffer<float>& buffer, j
         processingMode.store(targetMode);
         needsModeSwitch.store(false);
         modeCrossfadeProgress = 1.0f;
-        setLatencySamples(targetMode == 0 ? CLASSIC_MODE_LATENCY : MAX_FFT_SIZE);
+        requestLatency(targetMode == 0 ? CLASSIC_MODE_LATENCY : MAX_FFT_SIZE);
     }
 
     // Determine active mode (use target mode once crossfade is complete)
@@ -2172,7 +2288,11 @@ double FrequencyShifterProcessor::getTailLengthSeconds() const
 
 juce::AudioProcessorEditor* FrequencyShifterProcessor::createEditor()
 {
+#if HOLY_SHIFTER_USE_WEBVIEW
+    return new WebViewEditor(*this);
+#else
     return new VisageHostEditor(*this);
+#endif
 }
 
 void FrequencyShifterProcessor::getStateInformation(juce::MemoryBlock& destData)

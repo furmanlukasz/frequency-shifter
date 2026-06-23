@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 # Project setup
-project(FrequencyShifter VERSION 0.2.2)
+project(FrequencyShifter VERSION 0.2.3)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 20)
@@ -9,6 +9,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Export compile commands for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# WebView UI toggle: ON builds the resizable juce::WebBrowserComponent UI; OFF (default)
+# keeps the Visage GPU UI. Drives JUCE_WEB_BROWSER + HOLY_SHIFTER_USE_WEBVIEW + asset embed.
+option(HOLY_SHIFTER_USE_WEBVIEW "Build the resizable WebView UI instead of Visage" OFF)
+if(HOLY_SHIFTER_USE_WEBVIEW)
+    set(HOLY_WEBVIEW_VALUE 1)
+    # Install under a distinct name/AU-code so the WebView build COEXISTS with the
+    # Visage release (A/B both in one host) instead of overwriting it.
+    set(HOLY_PRODUCT_NAME "Holy Shifter WV")
+    set(HOLY_PLUGIN_CODE Fswv)
+else()
+    set(HOLY_WEBVIEW_VALUE 0)
+    set(HOLY_PRODUCT_NAME "Holy Shifter")
+    set(HOLY_PLUGIN_CODE Fshf)
+endif()
 
 # macOS deployment target (for M1 compatibility)
 if(APPLE)
@@ -86,6 +101,9 @@ set(PLUGIN_SOURCES
     src/VisageHostEditor.h
     src/PresetManager.cpp
     src/PresetManager.h
+    # WebView UI (the TU is empty unless HOLY_SHIFTER_USE_WEBVIEW=1)
+    src/WebViewEditor.cpp
+    src/WebViewEditor.h
     # Visage UI
     src/ui/HolyTheme.h
     src/ui/VisageParamAttachment.h
@@ -118,16 +136,23 @@ juce_add_plugin(FrequencyShifter
     COMPANY_NAME "Heathen Machines"
     BUNDLE_ID "com.harmonictools.frequencyshifter"
     PLUGIN_MANUFACTURER_CODE Hrmt
-    PLUGIN_CODE Fshf
+    PLUGIN_CODE ${HOLY_PLUGIN_CODE}
 
     # Plugin formats to build
     FORMATS AU VST3 AUv3 Standalone
+
+    # juce_vst3_helper can't load this bundle to emit moduleinfo.json ("couldn't be loaded").
+    # This is a SEPARATE, pre-existing issue from the automation hang (which is fixed): the
+    # VST3-SDK Module loader rejects the bundle although JUCE hosts (pluginval / pedalboard /
+    # DAWs) load it fine. Skip the (optional) manifest so the VST3 builds; DAWs load the
+    # plugin without moduleinfo.json — it is only a host-scan speed optimisation.
+    VST3_AUTO_MANIFEST FALSE
 
     # Plugin name. Single source of truth for the version is project(... VERSION) above;
     # it flows into JucePlugin_VersionString and holy::kVersion (Version.h).
     # Note for devs: dropping the version suffix means DAWs no longer auto-rescan on
     # iteration. Bump PROJECT_VERSION for a fresh rescan, or clear the host plugin cache.
-    PRODUCT_NAME "Holy Shifter"
+    PRODUCT_NAME ${HOLY_PRODUCT_NAME}
     VERSION ${PROJECT_VERSION}
 
     # Plugin characteristics
@@ -162,7 +187,8 @@ target_sources(FrequencyShifter PRIVATE ${PLUGIN_SOURCES})
 # Compile definitions
 target_compile_definitions(FrequencyShifter
     PUBLIC
-        JUCE_WEB_BROWSER=0
+        JUCE_WEB_BROWSER=${HOLY_WEBVIEW_VALUE}
+        HOLY_SHIFTER_USE_WEBVIEW=${HOLY_WEBVIEW_VALUE}
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -181,6 +207,27 @@ target_link_libraries(FrequencyShifter
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
+
+# WebView UI: link juce_gui_extra and embed web/public as BinaryData (served by the
+# editor's ResourceProvider). Mirrors the Parallax plugin's webview build.
+if(HOLY_SHIFTER_USE_WEBVIEW)
+    target_link_libraries(FrequencyShifter PRIVATE juce::juce_gui_extra)
+    set(HOLY_WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web/public")
+    file(GLOB HOLY_WEB_ASSETS CONFIGURE_DEPENDS "${HOLY_WEB_DIR}/*")
+    # Reuse the existing artwork + fonts (already in-repo for the Visage build) rather than
+    # committing duplicate copies under web/public/. Served by basename via the ResourceProvider.
+    list(APPEND HOLY_WEB_ASSETS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/pagan-background.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/heathen-machines-logo.png")
+    file(GLOB HOLY_WEB_FONTS "${CMAKE_CURRENT_SOURCE_DIR}/fonts/*.ttf")
+    list(APPEND HOLY_WEB_ASSETS ${HOLY_WEB_FONTS})
+    if(HOLY_WEB_ASSETS)
+        juce_add_binary_data(HolyShifterWebAssets SOURCES ${HOLY_WEB_ASSETS})
+        target_link_libraries(FrequencyShifter PRIVATE HolyShifterWebAssets)
+    else()
+        message(WARNING "HOLY_SHIFTER_USE_WEBVIEW=ON but no web assets in ${HOLY_WEB_DIR}")
+    endif()
+endif()
 
 # Enable all warnings
 if(MSVC)

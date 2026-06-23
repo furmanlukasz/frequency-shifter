@@ -182,6 +182,19 @@ HolyShifterUI::HolyShifterUI(FrequencyShifterProcessor& processor)
     smearSlider_.setSuffix(" ms");
     addChild(&smearSlider_);
 
+    // Peak-region snapping + sines/noise split controls
+    peakSnapToggle_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_PEAK_SNAP);
+    peakSnapToggle_.setLabel("Tones Only");
+    addChild(&peakSnapToggle_);
+
+    noiseSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_NOISE_MIX);
+    noiseSlider_.setDecimals(0);
+    addChild(&noiseSlider_);
+
+    peakSensSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_PEAK_SENS);
+    peakSensSlider_.setDecimals(0);
+    addChild(&peakSensSlider_);
+
     // === Freq Modulation ===
     lfoDepthSlider_.setAttachment(apvts_, FrequencyShifterProcessor::PARAM_LFO_DEPTH);
     lfoDepthSlider_.setAdaptiveDecimals(true);
@@ -463,6 +476,11 @@ void HolyShifterUI::updateControlsForMode()
     transientsSlider_.setDimmed(isClassic);
     sensitivitySlider_.setDimmed(isClassic);
     smearSlider_.setDimmed(isClassic);
+    peakSnapToggle_.setDimmed(isClassic);
+    // Texture/Density only do anything when Tones Only (peak-snap) is on — grey them otherwise.
+    const bool tonesOnly = apvts_.getRawParameterValue(FrequencyShifterProcessor::PARAM_PEAK_SNAP)->load() > 0.5f;
+    noiseSlider_.setDimmed(isClassic || ! tonesOnly);
+    peakSensSlider_.setDimmed(isClassic || ! tonesOnly);
     lfoDepthModeCombo_.setDimmed(isClassic);
     maskEnabledToggle_.setDimmed(isClassic);
     maskModeCombo_.setDimmed(isClassic);
@@ -643,11 +661,16 @@ void HolyShifterUI::draw(visage::Canvas& canvas)
     canvas.text("Quantize",   labelFont, visage::Font::kRight, 254, 237, 62, 20);
     canvas.text("Envelope",   labelFont, visage::Font::kRight, 254, 267, 62, 20);
     canvas.text("Transients", labelFont, visage::Font::kRight, 254, 297, 62, 20);
-    canvas.text("Sens",       labelFont, visage::Font::kRight, 443, 317, 30, 20);
+    canvas.text("Sens",       labelFont, visage::Font::kRight, 456, 297, 54, 20);
 
     // "Smear" label (Figma: panel-rel x=30, y=200 → absolute 275, 382)
     canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
     canvas.text("Smear", labelFont, visage::Font::kLeft, 270, 358, 40, 20);
+
+    // Peak-snap / sines-noise labels (provisional placement; right-aligned to slider tracks)
+    canvas.setColor(holy::dimColor(holy::colors::textSec, isClassic));
+    canvas.text("Texture", labelFont, visage::Font::kRight, 250, 340, 64, 16);
+    canvas.text("Density", labelFont, visage::Font::kRight, 454, 340, 62, 16);
 
     // Smear tooltip (Figma: panel-rel x=142, y=219 → absolute 387, 396; Inter Light 8px)
     auto tooltipFont = holy::makeFont(8.0f, holy::FontWeight::Light);
@@ -711,9 +734,15 @@ void HolyShifterUI::resized()
     pianoKeyboard_.setBounds(px + 13, py + 27, 400, 42);       // Figma: (13, 27, 400, 42)
     quantizeSlider_.setBounds(px + 77, py + 79, 334, 20);      // track at 77, value text extends to ~411
     preserveSlider_.setBounds(px + 77, py + 109, 334, 20);     // Envelope row
-    transientsSlider_.setBounds(px + 77, py + 139, 334, 20);   // Transients row
-    sensitivitySlider_.setBounds(px + 234, py + 159, 177, 20); // Sens track at 234, w=120
+    transientsSlider_.setBounds(px + 77, py + 139, 130, 18);    // Transients (left half — paired with Sens)
+    sensitivitySlider_.setBounds(px + 271, py + 139, 140, 18);  // Sens (right half — same row as Transients)
     smearSlider_.setBounds(px + 77, py + 200, 343, 20);        // Smear track at 77, w=286 (reflowed up after panel resize)
+
+    // "Tones Only" group: a labelled toggle header (wide enough that its label renders) with the
+    // Texture + Density sliders beneath it — one block, separated from the transient pair above.
+    peakSnapToggle_.setBounds(258, 319, 170, 16);
+    noiseSlider_.setBounds(322, 340, 130, 16);
+    peakSensSlider_.setBounds(520, 340, 136, 16);
 
     // DepthMode combo — hidden
     lfoDepthModeCombo_.setBounds(0, 0, 0, 0);

@@ -163,6 +163,15 @@ public:
     void setTransientAmount(float amount) { transientAmount = std::clamp(amount, 0.0f, 1.0f); }
     void setTransientSensitivity(float sensitivity) { transientSensitivity = std::clamp(sensitivity, 0.0f, 1.0f); }
 
+    // Peak-region snapping + sines/noise split.
+    //  - peakSnap: when true, only tonal peaks (and their main-lobe skirts) are scale-snapped,
+    //    moved as rigid units; non-peak ("noise") bins pass through instead of being snapped.
+    //  - noiseMix: 0 = drop the broadband residual (peaks only); 1 = full natural residual.
+    //  - peakSensitivity: 0 = only the strongest peaks count as tonal; 1 = many peaks counted.
+    void setPeakSnap(bool enabled) { peakSnapEnabled = enabled; }
+    void setNoiseMix(float amount) { noiseMix = std::clamp(amount, 0.0f, 1.0f); }
+    void setPeakSensitivity(float sensitivity) { peakSnapSensitivity = std::clamp(sensitivity, 0.0f, 1.0f); }
+
     // Getters
     int getRootMidi() const { return rootMidi; }
     ScaleType getScaleType() const { return scaleType; }
@@ -275,6 +284,16 @@ private:
     // Phase 2B: Transient detection parameters
     float transientAmount = 0.0f;       // 0.0 - 1.0 (how much transients bypass quantization)
     float transientSensitivity = 0.5f;  // 0.0 - 1.0 (detection threshold)
+
+    // Peak-region snapping + sines/noise split parameters
+    bool  peakSnapEnabled = false;      // false = legacy per-bin snapping (unchanged behaviour)
+    float noiseMix = 0.7f;              // 0.0 - 1.0 (broadband residual passthrough level)
+    float peakSnapSensitivity = 0.5f;   // 0.0 - 1.0 (peak-detection threshold)
+
+    // Peak-snap temporal state (keyed by MIDI note / scalar — safe with the single shared
+    // quantizer instance, like the phase accumulators; NOT per-bin).
+    std::array<float, NUM_MIDI_NOTES> midiNoteActivity{};  // existence hysteresis (sticky peaks)
+    float peakPrevEnergy = 0.0f;                            // previous-frame input energy (attack detect)
 
     // Transient detection state
     float previousFrameEnergy = 0.0f;

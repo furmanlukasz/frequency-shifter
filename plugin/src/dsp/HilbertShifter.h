@@ -119,13 +119,17 @@ public:
         // negative case. (Each HilbertShifter instance handles one audio channel,
         // so we always advance the oscillator regardless of the channel param.)
         double phaseIncrement = 2.0 * M_PI * shiftHz / sampleRate;
+        if (! std::isfinite(phaseIncrement))   // a non-finite shift (e.g. Inf LFO modulation in
+            phaseIncrement = 0.0;              // Degrees mode) must not poison the oscillator
         oscPhase += phaseIncrement;
 
-        // Wrap phase to prevent numerical issues
-        while (oscPhase >= 2.0 * M_PI)
-            oscPhase -= 2.0 * M_PI;
-        while (oscPhase < 0.0)
+        // Wrap phase to [0, 2π). Use fmod, NOT a subtract-loop: a subtract-loop spins FOREVER
+        // on a non-finite oscPhase (Inf - 2π == Inf) — that was the pluginval automation hang.
+        oscPhase = std::fmod(oscPhase, 2.0 * M_PI);
+        if (oscPhase < 0.0)
             oscPhase += 2.0 * M_PI;
+        if (! std::isfinite(oscPhase))
+            oscPhase = 0.0;
 
         return static_cast<float>(output);
     }
