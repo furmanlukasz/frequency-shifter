@@ -199,6 +199,56 @@ jobs:
         path: plugin/artifacts/*.zip
         if-no-files-found: warn
 
+  # Windows WebView build — verifies the juce::WebBrowserComponent (WebView2 / Edge Chromium)
+  # UI compiles + links on Windows. Builds the HOLY_SHIFTER_USE_WEBVIEW variant ("Holy Shifter
+  # WV") with the Microsoft.Web.WebView2 NuGet (statically-linked loader). Non-gating.
+  build-windows-webview:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Install WebView2 SDK (NuGet)
+      shell: pwsh
+      run: nuget install Microsoft.Web.WebView2 -Version 1.0.1901.177 -OutputDirectory ${{ github.workspace }}/nuget
+
+    - name: Configure CMake (WebView)
+      working-directory: plugin
+      run: >
+        cmake -B build-wv
+        -DCMAKE_BUILD_TYPE=Release
+        -DHOLY_SHIFTER_USE_WEBVIEW=ON
+        -DJUCE_WEBVIEW2_PACKAGE_LOCATION=${{ github.workspace }}/nuget
+
+    - name: Build (WebView)
+      working-directory: plugin
+      run: cmake --build build-wv --config Release --parallel
+
+    - name: List build artifacts
+      working-directory: plugin
+      shell: pwsh
+      run: Get-ChildItem -Recurse -Directory -Filter *.vst3 build-wv | ForEach-Object { $_.FullName }
+
+    - name: Package VST3
+      working-directory: plugin
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+        Compress-Archive -Path "build-wv/FrequencyShifter_artefacts/Release/VST3/*" -DestinationPath "artifacts/HolyShifter-WV-Windows-VST3.zip" -Force
+
+    - name: Upload VST3
+      uses: actions/upload-artifact@v4
+      with:
+        name: HolyShifter-WV-Windows-VST3
+        path: plugin/artifacts/*.zip
+        if-no-files-found: warn
+
   # Collect macOS artifacts into a release package for main-branch pushes.
   package:
     needs: [build-macos, dsp-tests]

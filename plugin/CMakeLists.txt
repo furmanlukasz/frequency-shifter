@@ -180,9 +180,20 @@ else()
     set(HOLY_IOS_PLUGIN_ARGS "")
 endif()
 
+# Windows WebView build needs JUCE's WebView2 backend (Edge Chromium). NEEDS_WEBVIEW2 makes
+# JUCE find_package(WebView2) and link the Microsoft.Web.WebView2 NuGet (headers + static
+# loader lib). Provide the package via -DJUCE_WEBVIEW2_PACKAGE_LOCATION=<nuget dir> or the
+# default per-user NuGet folder. Empty (no-op) on every other platform / the Visage build.
+if(WIN32 AND HOLY_SHIFTER_USE_WEBVIEW)
+    set(HOLY_WIN_PLUGIN_ARGS NEEDS_WEBVIEW2 TRUE)
+else()
+    set(HOLY_WIN_PLUGIN_ARGS "")
+endif()
+
 # Add the plugin target
 juce_add_plugin(FrequencyShifter
     ${HOLY_IOS_PLUGIN_ARGS}
+    ${HOLY_WIN_PLUGIN_ARGS}
     # Plugin info
     COMPANY_NAME "Heathen Machines"
     BUNDLE_ID "com.harmonictools.frequencyshifter"
@@ -265,6 +276,11 @@ endif()
 # editor's ResourceProvider). Mirrors the Parallax plugin's webview build.
 if(HOLY_SHIFTER_USE_WEBVIEW)
     target_link_libraries(FrequencyShifter PRIVATE juce::juce_gui_extra)
+    # Windows: statically link the WebView2 loader (no WebView2Loader.dll to ship). The lib +
+    # headers come from NEEDS_WEBVIEW2 (above); this flag tells JUCE to use the static loader.
+    if(WIN32)
+        target_compile_definitions(FrequencyShifter PUBLIC JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1)
+    endif()
     set(HOLY_WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web/public")
     file(GLOB HOLY_WEB_ASSETS CONFIGURE_DEPENDS "${HOLY_WEB_DIR}/*")
     # Reuse the existing artwork + fonts (already in-repo for the Visage build) rather than
