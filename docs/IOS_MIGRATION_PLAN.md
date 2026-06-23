@@ -1,30 +1,42 @@
-# Holy Shifter → iPad (iOS) App Store — Migration Plan
+# Holy Shifter → iOS (iPhone + iPad) App Store — Migration Plan
 
-_Status: research + plan (no code changes yet). Author: handoff doc. Target: ship Holy Shifter
-on the iPad App Store as an **AUv3 plug‑in + standalone container app**._
+_Status: **in progress** — build-system spike underway on branch `feat/ios-port`. Target: ship
+Holy Shifter on the iOS App Store as an **AUv3 plug‑in + standalone container app**, universal
+(iPhone + iPad)._
+
+> **Update (the WebView changes everything).** Since this plan was first written we shipped a
+> **WebView UI** (`juce::WebBrowserComponent`, branch merged to `main`). On iOS that component is
+> backed by **WKWebView**, which is fully supported — so the WebView UI *is* the iOS UI. This
+> **eliminates the project's central risk** (porting Visage's windowing layer to iOS) and the
+> longest phase (~2–4 wk + an ongoing Visage fork). The new path is **Path C** (§5). Paths A/B
+> are retained below only for context.
+
+**Decisions locked in:** universal **iPhone + iPad**; **min iOS 16**; **paid up‑front** (no
+StoreKit/IAP); **Benji's "Heathen Machines" team** (`DU92Z6L82F`) owns signing + the listing.
 
 ---
 
 ## 1. Executive summary
 
-Shipping Holy Shifter on the iPad App Store is **feasible**. The audio engine and the JUCE
-plug‑in plumbing port to iOS with little change. There is exactly **one significant
-engineering risk**: the **Visage GPU UI has no iOS support** today.
+Shipping Holy Shifter on the iOS App Store is **feasible and now low‑risk**. The audio engine and
+the JUCE plug‑in plumbing port with little change, and the **WebView UI runs on iOS as‑is** via
+WKWebView — so we do **not** need to port Visage to iOS.
 
 - ✅ **DSP core** — pure portable C++ (`src/dsp/*`), no platform headers. Cross‑compiles to
   iOS arm64 as‑is. (`juce_dsp` FFT uses Apple Accelerate/vDSP — fine on iOS.)
 - ✅ **JUCE wrapper** — JUCE 8 supports **AUv3** and **Standalone** on iOS. We already declare
   `AUv3` in `FORMATS` and set `PLUGIN_AU_EXPORT_PREFIX` / `AU_MAIN_TYPE`.
-- ✅ **Renderer** — Visage draws via **bgfx**, which has a working **Metal** backend on iOS
-  (`renderer_mtl.mm`, `entry_ios.mm`).
-- ❌ **Visage windowing + input** — `visage_windowing/` has `emscripten / win32 / macos /
-  linux` only. **No `ios/`.** The macOS layer is **AppKit** (`NSWindow`/`NSView`, 22 refs) and
-  is **mouse‑only** (no touch). On iOS, CMake's `APPLE` is also true, so it would try to compile
-  the AppKit file → **won't build for iOS**. This is the crux of the project.
+- ✅ **UI** — the **WebView UI** (HTML/CSS/JS + the `juce.js` relay bridge) renders in **WKWebView**
+  on iOS, with touch handled natively by the web view. Same UI codebase as desktop WebView.
+- ✅ **Build system** — Visage is now fully gated behind `HOLY_BUILD_VISAGE` (off on iOS); iOS
+  forces `HOLY_SHIFTER_USE_WEBVIEW=ON` and never compiles/links Visage. (Done on `feat/ios-port`.)
+- ⚠️ **Remaining work** — iOS build/sign/provisioning, touch‑ergonomics + iPhone‑size responsive
+  layout, preset sharing via App Group, audio‑session/state, and App Store packaging. None are
+  research‑risk; they're standard iOS integration.
 
-**Recommendation:** port Visage's windowing layer to iOS (UIView + CAMetalLayer + UITouch) so we
-keep the entire existing UI and visual parity (Path A). De‑risk with a 1–2 week spike before
-committing. Fallback is rebuilding the UI in JUCE (Path B) — larger and splits the UI codebase.
+**Recommendation:** **Path C** — ship the WebView UI on iOS. Visage stays desktop‑only. The
+Phase 0 spike is now just "prove the WebView UI renders + takes touch in the iOS simulator,"
+which is far cheaper than the old Visage‑port spike.
 
 ---
 
@@ -76,9 +88,30 @@ are thin JUCE wrappers around it (as today).
 
 ---
 
-## 5. The UI decision (the crux)
+## 5. The UI decision — **resolved: Path C (WebView)**
 
-### Path A — Port Visage windowing to iOS **(recommended)**
+### Path C — Ship the WebView UI on iOS **(chosen)**
+
+The WebView UI we built for desktop (`juce::WebBrowserComponent` + the `juce.js` relay/native‑
+function bridge, `src/WebViewEditor.{h,cpp}` + `web/public/*`) runs on iOS **unchanged**:
+
+- On iOS, `WebBrowserComponent` is backed by **WKWebView** (first‑class on the platform). The same
+  resource provider serves the embedded `web/public` bundle; the same relays drive the parameters.
+- **Touch is free** — WKWebView delivers native touch to the HTML controls; our knob/slider drag
+  already work on pointer deltas, which WebKit synthesises from touch. (Ergonomics still need a pass
+  — see Phase 3.)
+- **One UI codebase** for desktop‑WebView and iOS, and no Visage fork to maintain on iOS.
+- Build wiring is done: iOS forces `HOLY_SHIFTER_USE_WEBVIEW=ON` and `HOLY_BUILD_VISAGE=OFF`, so
+  Visage is never fetched, compiled, or linked (`plugin/CMakeLists.txt`).
+
+**Cons / open items:** the UI is currently aspect‑locked to 700×928 (portrait‑ish) — fine on iPad,
+but iPhone needs a responsive reflow (or letterboxing) for small/landscape sizes (Phase 3). Per‑host
+AUv3 WKWebView embedding still needs on‑device testing (Phase 5).
+
+> Paths A and B below are kept for historical context. With Path C working, **we do not port Visage
+> to iOS** unless we later want the GPU UI specifically on iPad.
+
+### Path A — Port Visage windowing to iOS (not pursued)
 
 Write `visage_windowing/ios/windowing_ios.mm`, the iOS analog of `windowing_macos.mm`:
 
@@ -176,33 +209,38 @@ spike shows Metal/AUv3 embedding is too fragile, fall back to B.
 
 ---
 
-## 10. Phased roadmap
+## 10. Phased roadmap (Path C)
 
-- **Phase 0 — Spike (de‑risk Visage on iOS), ~1–2 wk.** Minimal iOS app that renders the live Holy
-  Shifter UI in a `UIView` with touch input on a real iPad. **Go/no‑go for Path A.**
-- **Phase 1 — Build system, ~0.5–1 wk.** iOS CMake toolchain; AUv3 + Standalone iOS targets
-  building (DSP/headless first, then linking the UI).
-- **Phase 2 — Visage iOS windowing layer, ~2–4 wk** (or Path B UI rebuild if spike fails).
-- **Phase 3 — Touch UX pass, ~1–2 wk.** Hit targets, gestures, knob/slider/keyboard tuning, multi‑
-  touch.
-- **Phase 4 — iOS integration, ~1–2 wk.** Presets via App Group, audio session, state, icons,
-  launch screen, container/extension wiring.
-- **Phase 5 — Host testing + performance, ~1–2 wk.** AUM / GarageBand / Cubasis on device; profile.
-- **Phase 6 — App Store, ~1 wk + review.** App Store Connect, signing, (IAP), metadata, screenshots,
-  submission + review iteration.
+- **Phase 0 — WebView‑on‑iOS spike (simulator). _In progress._** Build the Standalone (which embeds
+  the AUv3) for the iOS simulator and confirm the WebView UI renders + takes touch. Cheap now that
+  it's "does WKWebView show our HTML" rather than "port Visage." Build wiring already done on
+  `feat/ios-port` (Visage gated off, WebView forced on).
+- **Phase 1 — Build system, ~0.5 wk.** iOS CMake/Xcode config for **device** (signing, bundle IDs,
+  provisioning via Benji's team); confirm AUv3 + Standalone archive. _(Simulator config done.)_
+- **Phase 2 — Responsive layout, ~1–2 wk.** Make the UI reflow for **iPhone** sizes + landscape
+  (today it's aspect‑locked 700×928 — fine on iPad, needs work on phone). Replaces the old
+  "Visage iOS windowing" phase, which Path C removes entirely.
+- **Phase 3 — Touch UX pass, ~1 wk.** 44 pt hit targets, gesture tuning for the knob/slider/piano,
+  prevent unwanted scroll/zoom/selection in WKWebView, fine‑drag affordance.
+- **Phase 4 — iOS integration, ~1–2 wk.** Presets via **App Group** (share between app + extension),
+  audio session, `fullState` save/restore, app icon, launch screen, container/extension wiring.
+- **Phase 5 — Host testing + performance, ~1–2 wk.** AUM / GarageBand / Cubasis on a real device;
+  profile STFT/FFT CPU + thermals on iPad/iPhone.
+- **Phase 6 — App Store, ~1 wk + review.** App Store Connect (Benji's team), signing, **paid‑app
+  pricing** (no IAP), metadata, iPhone+iPad screenshots, encryption declaration, submit + iterate.
 
-**Rough total (solo, experienced JUCE/C++/iOS dev): ~7–14 weeks** for Path A, gated by the Phase 0
-spike. Path B replaces Phase 2 with a larger UI rebuild (~3–6 wk of UI work) plus an ongoing
-two‑UI maintenance tax. Estimates are coarse and will be recalibrated after the spike.
+**Rough total (solo, experienced JUCE/C++/iOS dev): ~5–9 weeks** — Path C removes the ~2–4 wk
+Visage‑port phase and its ongoing fork tax. Estimates are coarse and will tighten as the spike and
+device builds land.
 
 ---
 
-## 11. Decisions needed before starting
+## 11. Decisions — resolved
 
-1. **UI strategy** — Path A (port Visage to iOS, recommended) vs Path B (rebuild UI in JUCE)?
-   (Default: run the Phase 0 spike, then decide.)
-2. **Monetization** — paid app vs free + IAP unlock?
-3. **Device scope** — iPad‑only, or universal (iPhone too)? Minimum iOS version (proposed: 15)?
-4. **Apple account ownership** — use Benji's "benjamin vaughan / Heathen Machines" team for App
-   Store Connect, or a separate Heathen Machines org account?
-5. **Who builds it** — same dev(s), or is this a separate workstream/handoff?
+1. **UI strategy** — ✅ **Path C (WebView on iOS).** Visage stays desktop‑only.
+2. **Monetization** — ✅ **Paid up‑front.** No StoreKit/IAP code; single App Store price.
+3. **Device scope** — ✅ **Universal (iPhone + iPad)**, **min iOS 16**.
+4. **Apple account ownership** — ✅ **Benji's "Heathen Machines" team** (`DU92Z6L82F`) — same
+   identity that signs the desktop release; owns the App Store Connect app + revenue.
+5. **Who builds it** — engineering here; **Benji handles signing/notarization + the App Store
+   submission** (as with desktop releases).

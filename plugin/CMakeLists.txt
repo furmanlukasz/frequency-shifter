@@ -10,6 +10,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Export compile commands for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# --- iOS detection -----------------------------------------------------------
+# Visage has no iOS windowing layer (only emscripten/win32/macos/linux), so iOS builds
+# the WebView UI (juce::WebBrowserComponent → WKWebView) and excludes Visage entirely.
+# A CMake iOS toolchain sets CMAKE_SYSTEM_NAME=iOS, which makes both APPLE and IOS true.
+if(IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(HOLY_IS_IOS TRUE)
+    set(HOLY_BUILD_VISAGE OFF)
+    # Force the WebView UI on for iOS (overrides any cached/passed value) BEFORE the option() below.
+    set(HOLY_SHIFTER_USE_WEBVIEW ON CACHE BOOL "iOS uses the WebView UI" FORCE)
+else()
+    set(HOLY_IS_IOS FALSE)
+    set(HOLY_BUILD_VISAGE ON)
+endif()
+
 # WebView UI toggle: ON builds the resizable juce::WebBrowserComponent UI; OFF (default)
 # keeps the Visage GPU UI. Drives JUCE_WEB_BROWSER + HOLY_SHIFTER_USE_WEBVIEW + asset embed.
 option(HOLY_SHIFTER_USE_WEBVIEW "Build the resizable WebView UI instead of Visage" OFF)
@@ -25,10 +39,13 @@ else()
     set(HOLY_PLUGIN_CODE Fshf)
 endif()
 
-# macOS deployment target (for M1 compatibility)
-if(APPLE)
+# macOS deployment target (for M1 compatibility). On iOS the arch + deployment target
+# come from the toolchain/command line, so only set the desktop-macOS values here.
+if(APPLE AND NOT HOLY_IS_IOS)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build universal binary")
+endif()
+if(APPLE)
     enable_language(OBJC)
     enable_language(OBJCXX)
 endif()
@@ -43,6 +60,9 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
+# Visage (GPU UI) is desktop-only — it has no iOS windowing. Fetch + patch it only when
+# HOLY_BUILD_VISAGE is on; iOS skips this entirely and uses the WebView UI.
+if(HOLY_BUILD_VISAGE)
 # Local patch carried against the pinned Visage: its embedded (plugin) WindowMac constructor never
 # calls setDpiScale(), unlike the top-level one — so AU hosts that attach the editor view late
 # (e.g. Ableton) initialise the canvas at dpiScale 1.0 while child frames lay out at the native 2×,
@@ -78,50 +98,37 @@ FetchContent_Declare(
     GIT_SHALLOW FALSE  # SHA pins require full history (GIT_SHALLOW only works with tags/branches)
     PATCH_COMMAND ${VISAGE_PATCH_COMMAND}
 )
+endif() # HOLY_BUILD_VISAGE
 
-FetchContent_MakeAvailable(JUCE visage)
+FetchContent_MakeAvailable(JUCE)
+if(HOLY_BUILD_VISAGE)
+    FetchContent_MakeAvailable(visage)
+endif()
 
 # --- Embed UI fonts (Inter + IBM Plex Mono) ---------------------------------
 # Visage's resource embedder (add_embedded_resources) is available once visage is
 # made available. Generates holy::fonts::Inter_*_ttf / IBMPlexMono_Light_ttf as
 # visage::EmbeddedFile, compiled into the binary (no runtime font dependency).
-file(GLOB HOLY_FONT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fonts/*.ttf")
-add_embedded_resources(HolyShifterFonts "holy_fonts.h" "holy::fonts" "${HOLY_FONT_FILES}")
+# Only for the Visage UI — the WebView build embeds its own font/image copies below.
+if(HOLY_BUILD_VISAGE)
+    file(GLOB HOLY_FONT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fonts/*.ttf")
+    add_embedded_resources(HolyShifterFonts "holy_fonts.h" "holy::fonts" "${HOLY_FONT_FILES}")
 
-# Embed UI images (e.g. the Heathen Machines logo) the same way → holy::images::*_png,
-# decoded + atlased by Visage at draw time (canvas.image()).
-file(GLOB HOLY_IMAGE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png")
-add_embedded_resources(HolyShifterImages "holy_images.h" "holy::images" "${HOLY_IMAGE_FILES}")
+    # Embed UI images (e.g. the Heathen Machines logo) the same way → holy::images::*_png,
+    # decoded + atlased by Visage at draw time (canvas.image()).
+    file(GLOB HOLY_IMAGE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png")
+    add_embedded_resources(HolyShifterImages "holy_images.h" "holy::images" "${HOLY_IMAGE_FILES}")
+endif()
 
-# Plugin sources
+# Plugin sources — core (platform-independent + WebView UI). Compiled on every platform.
 set(PLUGIN_SOURCES
     src/PluginProcessor.cpp
     src/PluginProcessor.h
-    src/VisageHostEditor.cpp
-    src/VisageHostEditor.h
     src/PresetManager.cpp
     src/PresetManager.h
     # WebView UI (the TU is empty unless HOLY_SHIFTER_USE_WEBVIEW=1)
     src/WebViewEditor.cpp
     src/WebViewEditor.h
-    # Visage UI
-    src/ui/HolyTheme.h
-    src/ui/VisageParamAttachment.h
-    src/ui/HolyShifterUI.cpp
-    src/ui/HolyShifterUI.h
-    src/ui/controls/VisageControl.h
-    src/ui/controls/HolyRotaryKnob.cpp
-    src/ui/controls/HolyRotaryKnob.h
-    src/ui/controls/HolySlider.cpp
-    src/ui/controls/HolySlider.h
-    src/ui/controls/HolyToggle.cpp
-    src/ui/controls/HolyToggle.h
-    src/ui/controls/HolyComboBox.cpp
-    src/ui/controls/HolyComboBox.h
-    src/ui/controls/HolyPianoKeyboard.cpp
-    src/ui/controls/HolyPianoKeyboard.h
-    src/ui/controls/HolySegmentedControl.cpp
-    src/ui/controls/HolySegmentedControl.h
     # DSP modules
     src/dsp/STFT.cpp
     src/dsp/STFT.h
@@ -130,8 +137,52 @@ set(PLUGIN_SOURCES
     src/dsp/Scales.h
 )
 
+# Visage GPU UI sources — desktop only. They include visage headers, which have no iOS
+# build, so iOS (HOLY_BUILD_VISAGE OFF) omits them and uses the WebView editor instead.
+if(HOLY_BUILD_VISAGE)
+    list(APPEND PLUGIN_SOURCES
+        src/VisageHostEditor.cpp
+        src/VisageHostEditor.h
+        src/ui/HolyTheme.h
+        src/ui/VisageParamAttachment.h
+        src/ui/HolyShifterUI.cpp
+        src/ui/HolyShifterUI.h
+        src/ui/controls/VisageControl.h
+        src/ui/controls/HolyRotaryKnob.cpp
+        src/ui/controls/HolyRotaryKnob.h
+        src/ui/controls/HolySlider.cpp
+        src/ui/controls/HolySlider.h
+        src/ui/controls/HolyToggle.cpp
+        src/ui/controls/HolyToggle.h
+        src/ui/controls/HolyComboBox.cpp
+        src/ui/controls/HolyComboBox.h
+        src/ui/controls/HolyPianoKeyboard.cpp
+        src/ui/controls/HolyPianoKeyboard.h
+        src/ui/controls/HolySegmentedControl.cpp
+        src/ui/controls/HolySegmentedControl.h
+    )
+endif()
+
+# iOS-only juce_add_plugin arguments, spliced into the call below via ${HOLY_IOS_PLUGIN_ARGS}
+# (expands to nothing on desktop, so the macOS/Windows build is unchanged).
+if(HOLY_IS_IOS)
+    set(HOLY_COPY_AFTER_BUILD FALSE)  # no system plug-in folder to copy into on iOS
+    set(HOLY_IOS_PLUGIN_ARGS
+        # An effect needs audio input; the standalone opens the input device on launch and
+        # iOS terminates the app without a usage string. AUv3 is host-driven but harmless to declare.
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        MICROPHONE_PERMISSION_TEXT "Holy Shifter processes incoming audio and needs access to the input."
+        REQUIRES_FULL_SCREEN TRUE
+        BACKGROUND_AUDIO_ENABLED TRUE
+    )
+else()
+    set(HOLY_COPY_AFTER_BUILD TRUE)
+    set(HOLY_IOS_PLUGIN_ARGS "")
+endif()
+
 # Add the plugin target
 juce_add_plugin(FrequencyShifter
+    ${HOLY_IOS_PLUGIN_ARGS}
     # Plugin info
     COMPANY_NAME "Heathen Machines"
     BUNDLE_ID "com.harmonictools.frequencyshifter"
@@ -166,8 +217,8 @@ juce_add_plugin(FrequencyShifter
     PLUGIN_AU_EXPORT_PREFIX FreqShifterAU
     AU_MAIN_TYPE kAudioUnitType_Effect
 
-    # Copy plugin to system folder after build (for testing)
-    COPY_PLUGIN_AFTER_BUILD TRUE
+    # Copy plugin to system folder after build (desktop only; no-op/false on iOS)
+    COPY_PLUGIN_AFTER_BUILD ${HOLY_COPY_AFTER_BUILD}
 )
 
 # Generate JUCE header
@@ -189,24 +240,26 @@ target_compile_definitions(FrequencyShifter
     PUBLIC
         JUCE_WEB_BROWSER=${HOLY_WEBVIEW_VALUE}
         HOLY_SHIFTER_USE_WEBVIEW=${HOLY_WEBVIEW_VALUE}
+        HOLY_BUILD_VISAGE=$<BOOL:${HOLY_BUILD_VISAGE}>
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
 )
 
-# Link JUCE modules and Visage
+# Link JUCE modules; Visage + its embedded resources are linked only on desktop.
 target_link_libraries(FrequencyShifter
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
-        visage
-        HolyShifterFonts
-        HolyShifterImages
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
+
+if(HOLY_BUILD_VISAGE)
+    target_link_libraries(FrequencyShifter PRIVATE visage HolyShifterFonts HolyShifterImages)
+endif()
 
 # WebView UI: link juce_gui_extra and embed web/public as BinaryData (served by the
 # editor's ResourceProvider). Mirrors the Parallax plugin's webview build.
