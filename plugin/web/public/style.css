@@ -69,6 +69,8 @@ input, .preset-edit { -webkit-user-select:text; user-select:text; cursor:text; }
 .sec-hdr .h.center { flex:1; }
 .sec.dimmed { opacity:.4; }
 .sec.dimmed .row, .sec.dimmed .switch, .sec.dimmed .combo, .sec.dimmed .piano, .sec.dimmed .seg { pointer-events:none; }
+/* per-control dimming (Visage setDimmed): disabled section sub-controls, gated Texture/Density */
+.row.dimmed, .subrow.dimmed { opacity:.4; pointer-events:none; }
 .tip { font-size:9px; color:var(--textsec); font-weight:300; }
 
 /* knob */
@@ -105,6 +107,7 @@ input, .preset-edit { -webkit-user-select:text; user-select:text; cursor:text; }
 /* combo (native select, styled) */
 .combo { height:34px; background:#0e0e10; border:1px solid #1e1e22; border-radius:7px; color:var(--text);
   font-size:12px; padding:0 10px; outline:none; cursor:pointer; }
+.combo.tan { color:#a59777; }   /* Mask mode combo — Visage's muted-tan Figma override */
 
 /* piano */
 .piano { position:relative; width:100%; height:60px; }

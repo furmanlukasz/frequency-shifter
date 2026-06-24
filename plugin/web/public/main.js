@@ -25,7 +25,12 @@ function mkEl(tag, cls, parent, txt) {
 }
 
 // ---- generic controls ----------------------------------------------------
-function sliderRow(parent, id, label) {
+// Per-control value formatting + tempo-sync, matching Visage HolySlider exactly.
+// opts: { decimals=1, suffix="", adaptive=false, secondsAbove=null,
+//         sync:{ toggleId, divisionId, reversed } }  — when the sync toggle is ON the row
+// shows the division label (e.g. "1/4"), snaps to the division choices, and (if reversed)
+// maps slow→left / fast→right; otherwise it's a normal continuous slider.
+function sliderRow(parent, id, label, opts = {}) {
   const row = mkEl("div", "row", parent);
   mkEl("span", "lbl", row, label);
   const trk = mkEl("div", "track", row);
@@ -34,27 +39,67 @@ function sliderRow(parent, id, label) {
   const dot = mkEl("div", "sdot", trk);
   const val = mkEl("span", "sval", row);
   const st = Juce.getSliderState(id);
-  const fmtVal = () => {
-    const p = st.properties || {}; let v = st.getScaledValue(); if (!isFinite(v)) v = 0;
-    const a = Math.abs(v);
-    const s = a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(1) : (a > 0 && a < 0.1) ? v.toFixed(3) : v.toFixed(2);
-    val.textContent = s + (p.label ? " " + p.label : "");
+  const sync = opts.sync || null;
+  const syncSt = sync ? Juce.getToggleState(sync.toggleId) : null;
+  const divSt = sync ? Juce.getComboBoxState(sync.divisionId) : null;
+  const synced = () => !!(syncSt && syncSt.getValue());
+
+  // Free-mode readout — mirrors HolySlider::formatValue (seconds-above, 0dp=truncate, adaptive).
+  const fmtFree = () => {
+    let v = st.getScaledValue(); if (!isFinite(v)) v = 0;
+    if (opts.secondsAbove != null && Math.abs(v) >= opts.secondsAbove) return (v / 1000).toFixed(2) + " s";
+    if (opts.decimals === 0) return String(Math.trunc(v)) + (opts.suffix || "");
+    let dec = opts.decimals != null ? opts.decimals : 1;
+    if (opts.adaptive) { const a = Math.abs(v); if (a > 0 && a < 0.01) dec = Math.max(dec, 3); else if (a < 0.1) dec = Math.max(dec, 2); }
+    return v.toFixed(dec) + (opts.suffix || "");
   };
-  const place = (n) => { fill.style.width = (n * 100) + "%"; dot.style.left = (n * 100) + "%"; };
-  const refresh = () => { place(st.getNormalisedValue()); fmtVal(); };
+  const divData = () => { const choices = (divSt.properties && divSt.properties.choices) || []; return { choices, idx: divSt.getChoiceIndex(), n: choices.length }; };
+
+  const render = () => {
+    if (synced()) {
+      const { choices, idx, n } = divData();
+      const norm = n > 1 ? idx / (n - 1) : 0;
+      const vis = sync.reversed ? 1 - norm : norm;
+      fill.style.width = (vis * 100) + "%"; dot.style.left = (vis * 100) + "%";
+      val.textContent = choices[idx] != null ? choices[idx] : "";
+    } else {
+      const nv = st.getNormalisedValue();
+      fill.style.width = (nv * 100) + "%"; dot.style.left = (nv * 100) + "%";
+      val.textContent = fmtFree();
+    }
+  };
   const setFromX = (clientX) => {
     const r = trk.getBoundingClientRect();
-    const n = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    st.setNormalisedValue(n); place(n); fmtVal();
+    const vis = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    if (synced()) {
+      const { n } = divData();
+      const norm = sync.reversed ? 1 - vis : vis;
+      divSt.setChoiceIndex(Math.max(0, Math.min(n - 1, Math.round(norm * (n - 1)))));
+      render();
+    } else {
+      st.setNormalisedValue(vis);
+      fill.style.width = (vis * 100) + "%"; dot.style.left = (vis * 100) + "%"; val.textContent = fmtFree();
+    }
   };
   let dragging = false;
-  trk.addEventListener("pointerdown", (e) => { dragging = true; trk.setPointerCapture(e.pointerId); st.sliderDragStarted(); setFromX(e.clientX); });
+  trk.addEventListener("pointerdown", (e) => { dragging = true; trk.setPointerCapture(e.pointerId); if (!synced()) st.sliderDragStarted(); setFromX(e.clientX); });
   trk.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
-  const end = (e) => { if (!dragging) return; dragging = false; try { trk.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); refresh(); };
+  const end = (e) => { if (!dragging) return; dragging = false; try { trk.releasePointerCapture(e.pointerId); } catch {} if (!synced()) st.sliderDragEnded(); render(); };
   trk.addEventListener("pointerup", end);
   trk.addEventListener("pointercancel", end);
-  st.valueChangedEvent.addListener(refresh); st.propertiesChangedEvent.addListener(refresh); refresh();
+  st.valueChangedEvent.addListener(render); st.propertiesChangedEvent.addListener(render);
+  if (syncSt) syncSt.valueChangedEvent.addListener(render);
+  if (divSt) { divSt.valueChangedEvent.addListener(render); divSt.propertiesChangedEvent.addListener(render); }
+  render();
   return row;
+}
+
+// Dimming helpers (mirror Visage setDimmed): grey + disable a set of controls.
+function dimEls(els, dim) { els.forEach((e) => e && e.classList.toggle("dimmed", dim)); }
+function wireEnableDim(toggleId, els) {
+  const st = Juce.getToggleState(toggleId);
+  const apply = () => dimEls(els, !st.getValue());
+  st.valueChangedEvent.addListener(apply); apply();
 }
 
 function switchEl(parent, id, label) {
@@ -152,7 +197,7 @@ function shiftKnob(parent) {
   cv.addEventListener("pointerdown", (e) => { dragging = true; fine = e.shiftKey; cv.setPointerCapture(e.pointerId);
     startY = e.clientY; startKn = knobFromPn(st.getNormalisedValue()); dragKn = startKn; st.sliderDragStarted(); });
   cv.addEventListener("pointermove", (e) => { if (!dragging) return;
-    const sens = fine ? 2800 : 360;   // px of vertical drag for full sweep (less sensitive than before)
+    const sens = fine ? 3600 : 360;   // base 360 px (you preferred this over Visage's 300); Shift = 10x finer
     dragKn = Math.min(1, Math.max(0, startKn + (startY - e.clientY) / sens));
     st.setNormalisedValue(pnFromKnob(dragKn)); draw(); });
   const end = (e) => { if (!dragging) return; dragging = false; try { cv.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); draw(); };
@@ -263,52 +308,58 @@ shiftKnob(knobWrap);
 const warmRow = mkEl("div", "subrow", knobWrap); warmRow.style.justifyContent = "center";
 switchEl(warmRow, "warm", "WARM");
 
-// spectral
+// spectral  (Visage: Quantize/Envelope/Transients 1dp no suffix, Sens/Texture/Density int, Smear 1dp ms)
 const specSec = section("SPECTRAL CONTROLS");
 pianoEl(specSec);
-sliderRow(specSec, "quantizeStrength", "Quantize");
-sliderRow(specSec, "preserve", "Envelope");
-sliderRow(specSec, "transients", "Transients");
-sliderRow(specSec, "sensitivity", "Sens");
+sliderRow(specSec, "quantizeStrength", "Quantize", { decimals: 1 });
+sliderRow(specSec, "preserve", "Envelope", { decimals: 1 });
+sliderRow(specSec, "transients", "Transients", { decimals: 1 });
+sliderRow(specSec, "sensitivity", "Sens", { decimals: 0 });
 switchEl(mkEl("div", "subrow", specSec), "peakSnap", "Tones Only");
-sliderRow(specSec, "noiseMix", "Texture");
-sliderRow(specSec, "peakSens", "Density");
-sliderRow(specSec, "smear", "Smear");
+const texRow = sliderRow(specSec, "noiseMix", "Texture", { decimals: 0 });
+const denRow = sliderRow(specSec, "peakSens", "Density", { decimals: 0 });
+sliderRow(specSec, "smear", "Smear", { decimals: 1, suffix: " ms" });
 mkEl("div", "tip", specSec, "Adjust with care while playing");
+wireEnableDim("peakSnap", [texRow, denRow]);   // Texture/Density active only when Tones Only is on
 
-// freq modulation
+// freq modulation  (lfoRate: tempo divisions when Sync on)
 const fmSec = section("FREQ MODULATION", "lfoEnabled");
-sliderRow(fmSec, "lfoDepth", "Depth");
-sliderRow(fmSec, "lfoRate", "Rate");
+const fmDepth = sliderRow(fmSec, "lfoDepth", "Depth", { adaptive: true });
+const fmRate = sliderRow(fmSec, "lfoRate", "Rate", { adaptive: true, suffix: " Hz",
+  sync: { toggleId: "lfoSync", divisionId: "lfoDivision", reversed: true } });
 const fmSub = mkEl("div", "subrow", fmSec);
 switchEl(fmSub, "lfoSync", "Sync"); comboEl(fmSub, "lfoShape");
+wireEnableDim("lfoEnabled", [fmDepth, fmRate, fmSub]);
 
-// delay
+// delay  (delayTime: ms, seconds above 1000; tempo divisions when Sync on)
 const dlySec = section("DELAY", "delayEnabled");
-sliderRow(dlySec, "delayTime", "Time");
-sliderRow(dlySec, "delayFeedback", "Feedback");
-sliderRow(dlySec, "delayDamping", "Damping");
-const slopeRow = sliderRow(dlySec, "delaySlope", "Slope");
+sliderRow(dlySec, "delayTime", "Time", { decimals: 1, suffix: " ms", secondsAbove: 1000,
+  sync: { toggleId: "delaySync", divisionId: "delayDivision", reversed: true } });
+sliderRow(dlySec, "delayFeedback", "Feedback", { decimals: 1 });
+sliderRow(dlySec, "delayDamping", "Damping", { decimals: 1 });
+const slopeRow = sliderRow(dlySec, "delaySlope", "Slope", { decimals: 1 });
 const dlySub = mkEl("div", "subrow", dlySec);
 switchEl(dlySub, "delaySync", "Sync"); decorrelateToggle(dlySub);
 
-// delay modulation
+// delay modulation  (dlyLfoRate: tempo divisions when Sync on)
 const dmSec = section("DELAY MODULATION", "dlyLfoEnabled");
-sliderRow(dmSec, "dlyLfoDepth", "Depth");
-sliderRow(dmSec, "dlyLfoRate", "Rate");
+const dmDepth = sliderRow(dmSec, "dlyLfoDepth", "Depth", { adaptive: true, suffix: " ms" });
+const dmRate = sliderRow(dmSec, "dlyLfoRate", "Rate", { adaptive: true, suffix: " Hz",
+  sync: { toggleId: "dlyLfoSync", divisionId: "dlyLfoDivision", reversed: true } });
 const dmSub = mkEl("div", "subrow", dmSec);
 switchEl(dmSub, "dlyLfoSync", "Sync"); comboEl(dmSub, "dlyLfoShape");
+wireEnableDim("dlyLfoEnabled", [dmDepth, dmRate, dmSub]);
 
-// mask
+// mask  (Transition 2dp oct, Low/High integer Hz)
 const maskSec = section("MASK", "maskEnabled");
-const maskSub = mkEl("div", "subrow", maskSec); comboEl(maskSub, "maskMode");
-sliderRow(maskSec, "maskTransition", "Transition");
-sliderRow(maskSec, "maskLowFreq", "Low");
-sliderRow(maskSec, "maskHighFreq", "High");
+const maskSub = mkEl("div", "subrow", maskSec); comboEl(maskSub, "maskMode").classList.add("tan");
+sliderRow(maskSec, "maskTransition", "Transition", { decimals: 2, suffix: " oct" });
+sliderRow(maskSec, "maskLowFreq", "Low", { decimals: 0 });
+sliderRow(maskSec, "maskHighFreq", "High", { decimals: 0 });
 
 // mix
 const mixSec = section("MIX");
-sliderRow(mixSec, "dryWet", "Dry / Wet");
+sliderRow(mixSec, "dryWet", "Dry / Wet", { decimals: 1 });
 
 // ---- mode dimming (spectral-only controls greyed in Classic) -------------
 function updateMode(idx) {
