@@ -5,6 +5,11 @@
 #include <cmath>
 #include <algorithm>
 
+// NOTE: <Accelerate/Accelerate.h> is intentionally NOT included here — it defines the
+// legacy Carbon `Point`/`Component` types that clash with juce::Point in any TU that
+// includes both. vDSP is used only inside STFT.cpp (which pulls in Accelerate there);
+// the FFT setup is held here as an opaque void* and cast in the .cpp.
+
 namespace fshift
 {
 
@@ -38,7 +43,7 @@ public:
      */
     STFT(int fftSize = 4096, int hopSize = 1024, WindowType windowType = WindowType::Hann);
 
-    ~STFT() = default;
+    ~STFT();
 
     /**
      * Prepare the STFT processor for a given sample rate.
@@ -113,8 +118,17 @@ private:
     std::vector<float> windowSquared;
     std::vector<std::complex<float>> fftBuffer;
 
-    // Pre-computed twiddle factors for FFT
+    // Pre-computed twiddle factors for FFT (scalar fallback path only)
     std::vector<std::complex<float>> twiddleFactors;
+
+#if defined(__APPLE__)
+    // Apple vDSP FFT state. Held opaquely (void*) so this header never pulls in
+    // <Accelerate/Accelerate.h> (whose Carbon Point/Component types clash with JUCE).
+    void* vdspSetup = nullptr;     // FFTSetup, created in ctor, destroyed in dtor
+    int vdspLog2 = 0;
+    std::vector<float> vdspReal;   // split-complex scratch (size fftSize)
+    std::vector<float> vdspImag;
+#endif
 };
 
 } // namespace fshift

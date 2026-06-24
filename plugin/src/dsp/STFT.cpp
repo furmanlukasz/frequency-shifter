@@ -2,6 +2,10 @@
 #include <stdexcept>
 #include <numbers>
 
+#if defined(__APPLE__)
+#include <Accelerate/Accelerate.h>  // vDSP — kept out of STFT.h to avoid Carbon/JUCE Point clash
+#endif
+
 namespace fshift
 {
 
@@ -29,13 +33,31 @@ STFT::STFT(int fftSize, int hopSize, WindowType windowType)
     // Allocate buffers
     fftBuffer.resize(fftSize);
 
-    // Pre-compute twiddle factors for FFT
+#if defined(__APPLE__)
+    // Set up Apple's vDSP FFT (SIMD). Split-complex scratch is reused every frame.
+    vdspLog2 = static_cast<int>(std::lround(std::log2(static_cast<double>(fftSize))));
+    vdspSetup = vDSP_create_fftsetup(static_cast<vDSP_Length>(vdspLog2), kFFTRadix2);
+    if (vdspSetup == nullptr)
+        throw std::runtime_error("vDSP_create_fftsetup failed");
+    vdspReal.resize(static_cast<size_t>(fftSize));
+    vdspImag.resize(static_cast<size_t>(fftSize));
+#else
+    // Pre-compute twiddle factors for the scalar Cooley-Tukey fallback.
     twiddleFactors.resize(fftSize / 2);
     for (int i = 0; i < fftSize / 2; ++i)
     {
         float angle = -2.0f * std::numbers::pi_v<float> * static_cast<float>(i) / static_cast<float>(fftSize);
         twiddleFactors[i] = std::complex<float>(std::cos(angle), std::sin(angle));
     }
+#endif
+}
+
+STFT::~STFT()
+{
+#if defined(__APPLE__)
+    if (vdspSetup != nullptr)
+        vDSP_destroy_fftsetup(static_cast<FFTSetup>(vdspSetup));
+#endif
 }
 
 void STFT::prepare(double newSampleRate)
@@ -175,6 +197,16 @@ void STFT::bitReverse(std::vector<std::complex<float>>& x)
 
 void STFT::fft(std::vector<std::complex<float>>& x)
 {
+#if defined(__APPLE__)
+    // Apple vDSP: in-place complex forward FFT, UNSCALED — same convention as the scalar
+    // path below, so ifft()'s conjugate/scale-by-1/N wrapper stays exactly correct.
+    // std::complex<float> is interleaved [re,im] (convertible to DSPComplex); ctoz/ztoc
+    // bridge to/from vDSP's split-complex layout. vdspReal/vdspImag are reused scratch.
+    DSPSplitComplex split { vdspReal.data(), vdspImag.data() };
+    vDSP_ctoz(reinterpret_cast<const DSPComplex*>(x.data()), 2, &split, 1, static_cast<vDSP_Length>(fftSize));
+    vDSP_fft_zip(static_cast<FFTSetup>(vdspSetup), &split, 1, static_cast<vDSP_Length>(vdspLog2), FFT_FORWARD);
+    vDSP_ztoc(&split, 1, reinterpret_cast<DSPComplex*>(x.data()), 2, static_cast<vDSP_Length>(fftSize));
+#else
     int n = static_cast<int>(x.size());
 
     // Bit-reversal permutation
@@ -198,6 +230,7 @@ void STFT::fft(std::vector<std::complex<float>>& x)
             }
         }
     }
+#endif
 }
 
 void STFT::ifft(std::vector<std::complex<float>>& x)

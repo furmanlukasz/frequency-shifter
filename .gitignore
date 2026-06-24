@@ -30,6 +30,9 @@
 build/
 plugin/build/
 plugin/dist/
+build-ios*/
+plugin/build-ios*/
+plugin/build-visage-check/
 
 # Local signing material (not for the repo)
 *.cer

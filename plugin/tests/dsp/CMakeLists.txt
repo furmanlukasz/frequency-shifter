@@ -16,6 +16,11 @@ target_include_directories(dsp_tests PRIVATE
 
 target_link_libraries(dsp_tests PRIVATE Catch2::Catch2WithMain)
 
+# STFT.cpp uses Apple vDSP (Accelerate) for the FFT on Apple platforms.
+if(APPLE)
+    target_link_libraries(dsp_tests PRIVATE "-framework Accelerate")
+endif()
+
 # Match the main target's C++ standard.
 target_compile_features(dsp_tests PRIVATE cxx_std_20)
 

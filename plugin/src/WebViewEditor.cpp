@@ -132,6 +132,17 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
                   std::cerr << "[webui] " << m << std::endl;
                   complete(juce::var());
               })
+          // Editor-initiated resize from an in-UI grip — works in every format/host (AU
+          // included), unlike host-frame resize. JS passes the desired width; height follows
+          // the fixed 700:928 aspect, and the constrainer clamps to the resize limits.
+          .withNativeFunction(juce::Identifier("resizeEditor"),
+              [this](const juce::Array<juce::var>& a, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
+                  if (a.size() >= 1) {
+                      const int w = juce::jlimit(420, 1750, static_cast<int>(a[0]));
+                      setSize(w, juce::roundToInt(w * 928.0 / 700.0));
+                  }
+                  complete(juce::var());
+              })
           .withResourceProvider([this](const auto& url) { return getResource(url); })),
       shiftHzAtt (*processorRef.getValueTreeState().getParameter("shiftHz"), shiftHzRelay, nullptr),
       quantizeStrengthAtt (*processorRef.getValueTreeState().getParameter("quantizeStrength"), quantizeStrengthRelay, nullptr),
@@ -203,10 +214,20 @@ std::optional<juce::WebBrowserComponent::Resource>
 WebViewEditor::getResource(const juce::String& url) const {
     const auto filename = resolveFilename(url);
     const auto ext      = filename.fromLastOccurrenceOf(".", false, false);
+
+    // iOS ships a SEPARATE, responsive layout; desktop (Mac/Windows) keeps the faithful
+    // 700x928 layout. Both bundles are embedded — on iOS, transparently serve the *.ios.*
+    // variants for the shared index.html's main.js/style.css requests.
+    juce::String lookup = filename;
+   #if JUCE_IOS
+    if (filename == "main.js")        lookup = "main.ios.js";
+    else if (filename == "style.css") lookup = "style.ios.css";
+   #endif
+
     // Match by ORIGINAL filename — juce_add_binary_data mangles names unpredictably
     // (e.g. "pagan-background.png" -> "paganbackground_png"), so don't guess the symbol.
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i) {
-        if (filename == BinaryData::originalFilenames[i]) {
+        if (lookup == BinaryData::originalFilenames[i]) {
             int size = 0;
             if (const char* data = BinaryData::getNamedResource(BinaryData::namedResourceList[i], size)) {
                 std::vector<std::byte> bytes(static_cast<size_t>(size));

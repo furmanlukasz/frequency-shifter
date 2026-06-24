@@ -14,73 +14,73 @@ window.HOLY_PARAMS = [
  {
   "id": "scaleNote0",
   "type": "bool",
-  "name": "Note 0",
+  "name": "Scale C",
   "section": "Scale"
  },
  {
   "id": "scaleNote1",
   "type": "bool",
-  "name": "Note 1",
+  "name": "Scale C#",
   "section": "Scale"
  },
  {
   "id": "scaleNote2",
   "type": "bool",
-  "name": "Note 2",
+  "name": "Scale D",
   "section": "Scale"
  },
  {
   "id": "scaleNote3",
   "type": "bool",
-  "name": "Note 3",
+  "name": "Scale D#",
   "section": "Scale"
  },
  {
   "id": "scaleNote4",
   "type": "bool",
-  "name": "Note 4",
+  "name": "Scale E",
   "section": "Scale"
  },
  {
   "id": "scaleNote5",
   "type": "bool",
-  "name": "Note 5",
+  "name": "Scale F",
   "section": "Scale"
  },
  {
   "id": "scaleNote6",
   "type": "bool",
-  "name": "Note 6",
+  "name": "Scale F#",
   "section": "Scale"
  },
  {
   "id": "scaleNote7",
   "type": "bool",
-  "name": "Note 7",
+  "name": "Scale G",
   "section": "Scale"
  },
  {
   "id": "scaleNote8",
   "type": "bool",
-  "name": "Note 8",
+  "name": "Scale G#",
   "section": "Scale"
  },
  {
   "id": "scaleNote9",
   "type": "bool",
-  "name": "Note 9",
+  "name": "Scale A",
   "section": "Scale"
  },
  {
   "id": "scaleNote10",
   "type": "bool",
-  "name": "Note 10",
+  "name": "Scale A#",
   "section": "Scale"
  },
  {
   "id": "scaleNote11",
   "type": "bool",
-  "name": "Note 11",
+  "name": "Scale B",
   "section": "Scale"
  },
  {

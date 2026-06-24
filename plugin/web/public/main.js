@@ -28,6 +28,19 @@ function text(cls, str, x, y, w, h, align) { const e = add("txt " + cls, x, y, w
 function scaleStage() { stage.style.setProperty("--s", Math.min(window.innerWidth / W, window.innerHeight / H)); }
 window.addEventListener("resize", scaleStage); scaleStage();
 
+// Pointer X -> [0,1] across a track, CORRECT under CSS `zoom`. Under zoom, WebKit can report
+// getBoundingClientRect() in unzoomed layout px while clientX is in zoomed/visual px — which
+// made slider clicks land off by the scale factor. Detect (via offsetWidth) whether the rect
+// already includes the zoom; if not, scale the rect into the pointer's (visual) space.
+function trackFrac(trk, clientX) {
+  const r = trk.getBoundingClientRect();
+  const layout = trk.offsetWidth || r.width;
+  const s = parseFloat(getComputedStyle(stage).getPropertyValue("--s")) || 1;
+  const f = (Math.abs(r.width - layout * s) <= Math.abs(r.width - layout)) ? 1 : s;
+  const w = r.width * f;
+  return w > 0 ? Math.min(1, Math.max(0, (clientX - r.left * f) / w)) : 0;
+}
+
 // ---- static chrome -------------------------------------------------------
 add("accent-line", 0, 0);
 text("title", "H O L Y   S H I F T E R", 27, 13, 440, 31);
@@ -61,15 +74,17 @@ const specLabels = [
   L("Texture", 250, 342, 64), L("Density", 454, 342, 62),
   text("tip", "(Adjust with care while playing)", 387, 379, 250, 10, "left"),
 ];
-L("Depth", 27, 434, 42); L("Rate", 27, 464, 42);
+const fmDepthLbl = L("Depth", 27, 434, 42), fmRateLbl = L("Rate", 27, 464, 42);
 L("Time", 116, 545, 36); L("Feedback", 28, 579, 60); L("Damping", 348, 579, 58);
 const slopeLbl = L("Slope", 28, 613, 42);
-L("Depth", 28, 681, 42); L("Rate", 28, 711, 42);
+const dmDepthLbl = L("Depth", 28, 681, 42), dmRateLbl = L("Rate", 28, 711, 42);
 const maskLabels = [L("Transition", 218, 789, 60), L("Low", 28, 821, 28), L("High", 369, 821, 30)];
 L("DRY / WET", 28, 885, 72);
 
 // ---- generic controls ----------------------------------------------------
-function slider(id, x, y, w, h) {
+// opts (match Visage HolySlider): { decimals=1, suffix="", adaptive, secondsAbove,
+// sync:{ toggleId, divisionId, reversed } } — Sync on => division label + snap + reversed.
+function slider(id, x, y, w, h, opts = {}) {
   const el = add("vslider", x, y, w, h);
   const trk = document.createElement("div"); trk.className = "strack";
   const bg = document.createElement("div"); bg.className = "sbg";
@@ -78,17 +93,43 @@ function slider(id, x, y, w, h) {
   const val = document.createElement("div"); val.className = "sval";
   trk.append(bg, fill, dot); el.append(trk, val);
   const st = Juce.getSliderState(id);
-  const fmtVal = () => { const p = st.properties || {}; let v = st.getScaledValue(); if (!isFinite(v)) v = 0;
-    const a = Math.abs(v); let s = a >= 100 ? v.toFixed(0) : a >= 1 ? v.toFixed(1) : a > 0 && a < 0.1 ? v.toFixed(3) : v.toFixed(2);
-    val.textContent = s + (p.label ? " " + p.label : ""); };
-  const refresh = () => { const n = st.getNormalisedValue(); fill.style.width = (n * 100) + "%"; dot.style.left = (n * 100) + "%"; fmtVal(); };
-  const setFromX = (clientX) => { const r = trk.getBoundingClientRect(); const n = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    st.setNormalisedValue(n); fill.style.width = (n * 100) + "%"; dot.style.left = (n * 100) + "%"; fmtVal(); };
+  const sync = opts.sync || null;
+  const syncSt = sync ? Juce.getToggleState(sync.toggleId) : null;
+  const divSt = sync ? Juce.getComboBoxState(sync.divisionId) : null;
+  const synced = () => !!(syncSt && syncSt.getValue());
+  const fmtFree = () => {
+    let v = st.getScaledValue(); if (!isFinite(v)) v = 0;
+    if (opts.secondsAbove != null && Math.abs(v) >= opts.secondsAbove) return (v / 1000).toFixed(2) + " s";
+    if (opts.decimals === 0) return String(Math.trunc(v)) + (opts.suffix || "");
+    let dec = opts.decimals != null ? opts.decimals : 1;
+    if (opts.adaptive) { const a = Math.abs(v); if (a > 0 && a < 0.01) dec = Math.max(dec, 3); else if (a < 0.1) dec = Math.max(dec, 2); }
+    return v.toFixed(dec) + (opts.suffix || "");
+  };
+  const divData = () => { const choices = (divSt.properties && divSt.properties.choices) || []; return { choices, idx: divSt.getChoiceIndex(), n: choices.length }; };
+  const render = () => {
+    if (synced()) {
+      const { choices, idx, n } = divData();
+      const norm = n > 1 ? idx / (n - 1) : 0, vis = sync.reversed ? 1 - norm : norm;
+      fill.style.width = (vis * 100) + "%"; dot.style.left = (vis * 100) + "%";
+      val.textContent = choices[idx] != null ? choices[idx] : "";
+    } else {
+      const n = st.getNormalisedValue(); fill.style.width = (n * 100) + "%"; dot.style.left = (n * 100) + "%"; val.textContent = fmtFree();
+    }
+  };
+  const setFromX = (clientX) => {
+    const vis = trackFrac(trk, clientX);   // zoom-correct fraction across the track
+    if (synced()) { const { n } = divData(); const norm = sync.reversed ? 1 - vis : vis;
+      divSt.setChoiceIndex(Math.max(0, Math.min(n - 1, Math.round(norm * (n - 1))))); render(); }
+    else { st.setNormalisedValue(vis); fill.style.width = (vis * 100) + "%"; dot.style.left = (vis * 100) + "%"; val.textContent = fmtFree(); }
+  };
   let dragging = false;
-  trk.addEventListener("pointerdown", (e) => { dragging = true; trk.setPointerCapture(e.pointerId); st.sliderDragStarted(); setFromX(e.clientX); });
+  trk.addEventListener("pointerdown", (e) => { dragging = true; trk.setPointerCapture(e.pointerId); if (!synced()) st.sliderDragStarted(); setFromX(e.clientX); });
   trk.addEventListener("pointermove", (e) => { if (dragging) setFromX(e.clientX); });
-  trk.addEventListener("pointerup", (e) => { dragging = false; try { trk.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); refresh(); });
-  st.valueChangedEvent.addListener(refresh); st.propertiesChangedEvent.addListener(refresh); refresh();
+  trk.addEventListener("pointerup", (e) => { dragging = false; try { trk.releasePointerCapture(e.pointerId); } catch {} if (!synced()) st.sliderDragEnded(); render(); });
+  st.valueChangedEvent.addListener(render); st.propertiesChangedEvent.addListener(render);
+  if (syncSt) syncSt.valueChangedEvent.addListener(render);
+  if (divSt) { divSt.valueChangedEvent.addListener(render); divSt.propertiesChangedEvent.addListener(render); }
+  render();
   return el;
 }
 
@@ -198,7 +239,7 @@ function shiftKnob(x, y, w, h) {
   el.addEventListener("pointerdown", (e) => { dragging = true; fine = e.shiftKey; el.setPointerCapture(e.pointerId);
     startY = e.clientY; startKn = knobFromPn(st.getNormalisedValue()); dragKn = startKn; st.sliderDragStarted(); });
   el.addEventListener("pointermove", (e) => { if (!dragging) return;
-    const sens = fine ? 2500 : 250;
+    const sens = fine ? 3000 : 300;   // match Visage: 300 px/sweep, Shift = 10x finer
     dragKn = Math.min(1, Math.max(0, startKn + (startY - e.clientY) / sens));
     st.setNormalisedValue(pnFromKnob(dragKn)); draw(); });
   el.addEventListener("pointerup", (e) => { dragging = false; try { el.releasePointerCapture(e.pointerId); } catch {} st.sliderDragEnded(); draw(); });
@@ -282,6 +323,14 @@ function decorrelateToggle(x, y, w, h) {
   return el;
 }
 
+// ---- dimming (Visage setDimmed): grey + disable a set of controls when a toggle is off
+function dimEls(els, dim) { els.forEach((e) => e && e.classList.toggle("dimmed", dim)); }
+function wireEnableDim(toggleId, els) {
+  const st = Juce.getToggleState(toggleId);
+  const apply = () => dimEls(els, !st.getValue());
+  st.valueChangedEvent.addListener(apply); apply();
+}
+
 // ---- assemble ------------------------------------------------------------
 presetBar();
 toggleSwitch("warm", 591, 107, 80, 24, "WARM");
@@ -289,47 +338,53 @@ shiftKnob(27, 168, 210, 218);
 
 // spectral panel controls
 piano(258, 185, 400, 42);
-slider("quantizeStrength", 322, 237, 334, 20);
-slider("preserve", 322, 267, 334, 20);
-slider("transients", 322, 297, 130, 18);
-slider("sensitivity", 516, 297, 140, 18);
+slider("quantizeStrength", 322, 237, 334, 20, { decimals: 1 });
+slider("preserve", 322, 267, 334, 20, { decimals: 1 });
+slider("transients", 322, 297, 130, 18, { decimals: 1 });
+slider("sensitivity", 516, 297, 140, 18, { decimals: 0 });
 const peakSnapEl = toggleSwitch("peakSnap", 258, 319, 170, 16, "Tones Only");
-slider("noiseMix", 322, 340, 130, 16);
-slider("peakSens", 520, 340, 136, 16);
-slider("smear", 322, 358, 343, 20);
+const noiseSld = slider("noiseMix", 322, 340, 130, 16, { decimals: 0 });
+const peakSensSld = slider("peakSens", 520, 340, 136, 16, { decimals: 0 });
+slider("smear", 322, 358, 343, 20, { decimals: 1, suffix: " ms" });
+wireEnableDim("peakSnap", [noiseSld, peakSensSld]);   // Texture/Density active only with Tones Only
 
-// freq modulation
+// freq modulation  (lfoRate -> tempo divisions when Sync on)
 toggleSwitch("lfoEnabled", 119, 411, 34, 15, "");
-slider("lfoDepth", 75, 431, 430, 22);
-slider("lfoRate", 75, 462, 356, 22);
-toggleSwitch("lfoSync", 451, 462, 75, 24, "Sync");
-combo("lfoShape", 579, 463, 76, 22);
+const lfoDepthSld = slider("lfoDepth", 75, 431, 430, 22, { adaptive: true });
+const lfoRateSld = slider("lfoRate", 75, 462, 356, 22, { adaptive: true, suffix: " Hz",
+  sync: { toggleId: "lfoSync", divisionId: "lfoDivision", reversed: true } });
+const lfoSyncTgl = toggleSwitch("lfoSync", 451, 462, 75, 24, "Sync");
+const lfoShapeCmb = combo("lfoShape", 579, 463, 76, 22);
+wireEnableDim("lfoEnabled", [lfoDepthSld, lfoRateSld, lfoSyncTgl, lfoShapeCmb, fmDepthLbl, fmRateLbl]);
 
-// delay
+// delay  (delayTime -> seconds above 1000 ms; tempo divisions when Sync on)
 toggleSwitch("delayEnabled", 55, 523, 34, 15, "");
-slider("delayTime", 158, 543, 346, 22);
+slider("delayTime", 158, 543, 346, 22, { decimals: 1, suffix: " ms", secondsAbove: 1000,
+  sync: { toggleId: "delaySync", divisionId: "delayDivision", reversed: true } });
 toggleSwitch("delaySync", 523, 543, 80, 24, "Sync");
-slider("delayFeedback", 94, 577, 238, 22);
-slider("delayDamping", 416, 577, 260, 22);
-const slopeSlider = slider("delaySlope", 76, 611, 256, 22);
+slider("delayFeedback", 94, 577, 238, 22, { decimals: 1 });
+slider("delayDamping", 416, 577, 260, 22, { decimals: 1 });
+const slopeSlider = slider("delaySlope", 76, 611, 256, 22, { decimals: 1 });
 decorrelateToggle(582, 631, 110, 18);
 
-// delay modulation
+// delay modulation  (dlyLfoRate -> tempo divisions when Sync on)
 toggleSwitch("dlyLfoEnabled", 120, 657, 34, 15, "");
-slider("dlyLfoDepth", 76, 679, 448, 22);
-slider("dlyLfoRate", 76, 709, 356, 22);
-toggleSwitch("dlyLfoSync", 452, 709, 75, 24, "Sync");
-combo("dlyLfoShape", 584, 707, 76, 22);
+const dlyDepthSld = slider("dlyLfoDepth", 76, 679, 448, 22, { adaptive: true, suffix: " ms" });
+const dlyRateSld = slider("dlyLfoRate", 76, 709, 356, 22, { adaptive: true, suffix: " Hz",
+  sync: { toggleId: "dlyLfoSync", divisionId: "dlyLfoDivision", reversed: true } });
+const dlySyncTgl = toggleSwitch("dlyLfoSync", 452, 709, 75, 24, "Sync");
+const dlyShapeCmb = combo("dlyLfoShape", 584, 707, 76, 22);
+wireEnableDim("dlyLfoEnabled", [dlyDepthSld, dlyRateSld, dlySyncTgl, dlyShapeCmb, dmDepthLbl, dmRateLbl]);
 
 // mask
 const maskEnEl = toggleSwitch("maskEnabled", 56, 767, 34, 15, "");
-const maskModeEl = combo("maskMode", 88, 784, 90, 22);
-const maskT = slider("maskTransition", 284, 787, 191, 22);
-const maskLo = slider("maskLowFreq", 62, 819, 301, 22);
-const maskHi = slider("maskHighFreq", 405, 819, 261, 22);
+const maskModeEl = combo("maskMode", 88, 784, 90, 22); maskModeEl.classList.add("tan");
+const maskT = slider("maskTransition", 284, 787, 191, 22, { decimals: 2, suffix: " oct" });
+const maskLo = slider("maskLowFreq", 62, 819, 301, 22, { decimals: 0 });
+const maskHi = slider("maskHighFreq", 405, 819, 261, 22, { decimals: 0 });
 
 // mix
-slider("dryWet", 108, 879, 545, 22);
+slider("dryWet", 108, 879, 545, 22, { decimals: 1 });
 
 // ---- mode dimming (Spectral-only controls greyed in Classic) -------------
 function updateMode(idx) {
@@ -348,5 +403,24 @@ function updateMode(idx) {
 
 // Mode selector created LAST so its initial dimming pass sees every control above.
 segmented("processingMode", 28, 106, 220, 26, ["CLASSIC", "SPECTRAL"], updateMode);
+
+// ---- resize grip (bottom-right) -----------------------------------------
+// Editor-initiated resize so it works in EVERY format/host — AU included — where the
+// host frame won't resize the window and the native web view hides JUCE's corner handle.
+// Drag changes the editor width; height + clamping follow the 700:928 aspect natively.
+function resizeGrip() {
+  const g = add("resize-grip", W - 20, H - 20, 18, 18);
+  g.style.zIndex = "60";
+  const fn = Juce.getNativeFunction("resizeEditor");
+  let dragging = false, startX = 0, startW = 0;
+  g.addEventListener("pointerdown", (e) => { e.stopPropagation(); dragging = true; g.setPointerCapture(e.pointerId);
+    startX = e.screenX; startW = window.innerWidth; });
+  g.addEventListener("pointermove", (e) => { if (!dragging) return;
+    const newW = Math.max(420, Math.min(1750, Math.round(startW + (e.screenX - startX))));
+    try { fn(newW); } catch {} });
+  const end = (e) => { dragging = false; try { g.releasePointerCapture(e.pointerId); } catch {} };
+  g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
+}
+resizeGrip();
 
 nlog("UI assembled OK; stage children =", stage.childElementCount);
