@@ -128,3 +128,9 @@ input, .preset-edit { -webkit-user-select:text; user-select:text; cursor:text; }
 /* rotary knob */
 .knob { display:flex; align-items:center; justify-content:center; cursor:ns-resize; }
 .knob canvas { width:100%; height:100%; }
+
+/* resize grip (bottom-right corner) — diagonal accent stripes, drag to resize the window */
+.resize-grip { cursor:nwse-resize; opacity:.5;
+  background:linear-gradient(135deg, transparent 0 60%, var(--accent) 60% 68%, transparent 68% 76%,
+    var(--accent) 76% 84%, transparent 84% 92%, var(--accent) 92% 100%); }
+.resize-grip:hover { opacity:1; }

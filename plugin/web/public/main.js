@@ -391,4 +391,23 @@ function updateMode(idx) {
 // Mode selector created LAST so its initial dimming pass sees every control above.
 segmented("processingMode", 28, 106, 220, 26, ["CLASSIC", "SPECTRAL"], updateMode);
 
+// ---- resize grip (bottom-right) -----------------------------------------
+// Editor-initiated resize so it works in EVERY format/host — AU included — where the
+// host frame won't resize the window and the native web view hides JUCE's corner handle.
+// Drag changes the editor width; height + clamping follow the 700:928 aspect natively.
+function resizeGrip() {
+  const g = add("resize-grip", W - 20, H - 20, 18, 18);
+  g.style.zIndex = "60";
+  const fn = Juce.getNativeFunction("resizeEditor");
+  let dragging = false, startX = 0, startW = 0;
+  g.addEventListener("pointerdown", (e) => { e.stopPropagation(); dragging = true; g.setPointerCapture(e.pointerId);
+    startX = e.screenX; startW = window.innerWidth; });
+  g.addEventListener("pointermove", (e) => { if (!dragging) return;
+    const newW = Math.max(420, Math.min(1750, Math.round(startW + (e.screenX - startX))));
+    try { fn(newW); } catch {} });
+  const end = (e) => { dragging = false; try { g.releasePointerCapture(e.pointerId); } catch {} };
+  g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
+}
+resizeGrip();
+
 nlog("UI assembled OK; stage children =", stage.childElementCount);

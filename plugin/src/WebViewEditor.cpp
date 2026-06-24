@@ -132,6 +132,17 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
                   std::cerr << "[webui] " << m << std::endl;
                   complete(juce::var());
               })
+          // Editor-initiated resize from an in-UI grip — works in every format/host (AU
+          // included), unlike host-frame resize. JS passes the desired width; height follows
+          // the fixed 700:928 aspect, and the constrainer clamps to the resize limits.
+          .withNativeFunction(juce::Identifier("resizeEditor"),
+              [this](const juce::Array<juce::var>& a, juce::WebBrowserComponent::NativeFunctionCompletion complete) {
+                  if (a.size() >= 1) {
+                      const int w = juce::jlimit(420, 1750, static_cast<int>(a[0]));
+                      setSize(w, juce::roundToInt(w * 928.0 / 700.0));
+                  }
+                  complete(juce::var());
+              })
           .withResourceProvider([this](const auto& url) { return getResource(url); })),
       shiftHzAtt (*processorRef.getValueTreeState().getParameter("shiftHz"), shiftHzRelay, nullptr),
       quantizeStrengthAtt (*processorRef.getValueTreeState().getParameter("quantizeStrength"), quantizeStrengthRelay, nullptr),
