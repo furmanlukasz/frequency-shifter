@@ -203,10 +203,20 @@ std::optional<juce::WebBrowserComponent::Resource>
 WebViewEditor::getResource(const juce::String& url) const {
     const auto filename = resolveFilename(url);
     const auto ext      = filename.fromLastOccurrenceOf(".", false, false);
+
+    // iOS ships a SEPARATE, responsive layout; desktop (Mac/Windows) keeps the faithful
+    // 700x928 layout. Both bundles are embedded — on iOS, transparently serve the *.ios.*
+    // variants for the shared index.html's main.js/style.css requests.
+    juce::String lookup = filename;
+   #if JUCE_IOS
+    if (filename == "main.js")        lookup = "main.ios.js";
+    else if (filename == "style.css") lookup = "style.ios.css";
+   #endif
+
     // Match by ORIGINAL filename — juce_add_binary_data mangles names unpredictably
     // (e.g. "pagan-background.png" -> "paganbackground_png"), so don't guess the symbol.
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i) {
-        if (filename == BinaryData::originalFilenames[i]) {
+        if (lookup == BinaryData::originalFilenames[i]) {
             int size = 0;
             if (const char* data = BinaryData::getNamedResource(BinaryData::namedResourceList[i], size)) {
                 std::vector<std::byte> bytes(static_cast<size_t>(size));
