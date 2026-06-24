@@ -28,6 +28,19 @@ function text(cls, str, x, y, w, h, align) { const e = add("txt " + cls, x, y, w
 function scaleStage() { stage.style.setProperty("--s", Math.min(window.innerWidth / W, window.innerHeight / H)); }
 window.addEventListener("resize", scaleStage); scaleStage();
 
+// Pointer X -> [0,1] across a track, CORRECT under CSS `zoom`. Under zoom, WebKit can report
+// getBoundingClientRect() in unzoomed layout px while clientX is in zoomed/visual px — which
+// made slider clicks land off by the scale factor. Detect (via offsetWidth) whether the rect
+// already includes the zoom; if not, scale the rect into the pointer's (visual) space.
+function trackFrac(trk, clientX) {
+  const r = trk.getBoundingClientRect();
+  const layout = trk.offsetWidth || r.width;
+  const s = parseFloat(getComputedStyle(stage).getPropertyValue("--s")) || 1;
+  const f = (Math.abs(r.width - layout * s) <= Math.abs(r.width - layout)) ? 1 : s;
+  const w = r.width * f;
+  return w > 0 ? Math.min(1, Math.max(0, (clientX - r.left * f) / w)) : 0;
+}
+
 // ---- static chrome -------------------------------------------------------
 add("accent-line", 0, 0);
 text("title", "H O L Y   S H I F T E R", 27, 13, 440, 31);
@@ -104,7 +117,7 @@ function slider(id, x, y, w, h, opts = {}) {
     }
   };
   const setFromX = (clientX) => {
-    const r = trk.getBoundingClientRect(); const vis = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    const vis = trackFrac(trk, clientX);   // zoom-correct fraction across the track
     if (synced()) { const { n } = divData(); const norm = sync.reversed ? 1 - vis : vis;
       divSt.setChoiceIndex(Math.max(0, Math.min(n - 1, Math.round(norm * (n - 1))))); render(); }
     else { st.setNormalisedValue(vis); fill.style.width = (vis * 100) + "%"; dot.style.left = (vis * 100) + "%"; val.textContent = fmtFree(); }
