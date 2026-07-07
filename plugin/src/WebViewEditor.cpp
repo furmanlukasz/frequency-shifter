@@ -36,6 +36,17 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
       processorRef(p),
       webView(juce::WebBrowserComponent::Options{}
           .withNativeIntegrationEnabled()
+          // Windows/WebView2 stores its browser user-data folder next to the HOST executable by
+          // default. In a DAW installed under Program Files (e.g. Bitwig) that folder isn't
+          // writable, so WebView2 fails to initialise and the page never loads ("this page can't
+          // be reached"). Point it at a per-user writable location instead. JUCE's own docs flag
+          // this as necessary for plugins. No-op on the macOS/iOS WKWebView backend.
+         #if JUCE_WINDOWS
+          .withWinWebView2Options(
+              juce::WebBrowserComponent::Options::WinWebView2{}
+                  .withUserDataFolder(juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                          .getChildFile("HolyShifterWebView2")))
+         #endif
           .withOptionsFrom(shiftHzRelay)
           .withOptionsFrom(quantizeStrengthRelay)
           .withOptionsFrom(scaleNote0Relay)
