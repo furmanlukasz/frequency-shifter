@@ -5,6 +5,27 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "PluginProcessor.h"
 #include <optional>
+#include <functional>
+
+// Diagnostic wrapper around WebBrowserComponent: surfaces navigation outcomes (about-to-load,
+// finished, network error) via callbacks so we can log *why* the page fails to load on hosts
+// where stderr isn't visible (e.g. WebView2 in a Windows DAW). Behaviour is otherwise unchanged.
+class DiagWebBrowser : public juce::WebBrowserComponent {
+public:
+    explicit DiagWebBrowser(const Options& options) : juce::WebBrowserComponent(options) {}
+    std::function<void(const juce::String&)> onAboutToLoad, onFinished, onNetworkError;
+    bool pageAboutToLoad(const juce::String& url) override {
+        if (onAboutToLoad) onAboutToLoad(url);
+        return true;
+    }
+    void pageFinishedLoading(const juce::String& url) override {
+        if (onFinished) onFinished(url);
+    }
+    bool pageLoadHadNetworkError(const juce::String& info) override {
+        if (onNetworkError) onNetworkError(info);
+        return true; // keep the default error page
+    }
+};
 
 class WebViewEditor : public juce::AudioProcessorEditor {
 public:
@@ -68,7 +89,7 @@ private:
     juce::WebComboBoxRelay processingModeRelay { "processingMode" };
     juce::WebToggleButtonRelay warmRelay { "warm" };
 
-    juce::WebBrowserComponent webView;
+    DiagWebBrowser webView;
 
     // Attachments wire each relay to its APVTS parameter (constructed after webView).
     juce::WebSliderParameterAttachment shiftHzAtt;
