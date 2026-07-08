@@ -7,10 +7,12 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Product = the WebView UI (Holy Shifter WV) on macOS + Windows. The legacy Visage
+# (GPU) builds are intentionally NOT built here to save runner minutes.
+
 jobs:
   dsp-tests:
-    # Pure C++ DSP unit tests — fast, no audio host required.
-    # Runs in parallel with the plugin build; both jobs gate merges.
+    # Pure C++ DSP unit tests — fast, no audio host required. Gates merges.
     runs-on: macos-14
 
     steps:
@@ -35,222 +37,8 @@ jobs:
       working-directory: plugin
       run: ctest --test-dir build-tests --output-on-failure
 
-  build-macos:
-    runs-on: macos-14
-    timeout-minutes: 45   # backstop in case validation hangs on the headless runner
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup CMake
-      uses: lukka/get-cmake@latest
-
-    - name: Configure CMake
-      working-directory: plugin
-      run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-          -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0"
-
-    - name: Build
-      working-directory: plugin
-      run: cmake --build build --config Release --parallel
-
-    - name: List build artifacts
-      working-directory: plugin
-      run: |
-        echo "=== VST3 ==="
-        find build -name "*.vst3" -type d
-        echo "=== AU ==="
-        find build -name "*.component" -type d
-
-    # ---- Package + upload BEFORE validation so binaries are always produced ---
-    # pluginval/pedalboard currently hang at plugin load on the headless runner
-    # (Visage GPU init — a CI-environment limitation, not a build failure), so
-    # they run afterwards and are non-blocking. Artifacts must be uploaded first.
-
-    - name: Package VST3
-      working-directory: plugin
-      run: |
-        mkdir -p artifacts/VST3
-        cp -R build/FrequencyShifter_artefacts/Release/VST3/*.vst3 artifacts/VST3/ || true
-
-    - name: Package AU
-      working-directory: plugin
-      run: |
-        mkdir -p artifacts/AU
-        cp -R build/FrequencyShifter_artefacts/Release/AU/*.component artifacts/AU/ || true
-
-    - name: Upload VST3
-      uses: actions/upload-artifact@v4
-      with:
-        name: FrequencyShifter-macOS-VST3
-        path: plugin/artifacts/VST3/
-        if-no-files-found: warn
-
-    - name: Upload AU
-      uses: actions/upload-artifact@v4
-      with:
-        name: FrequencyShifter-macOS-AU
-        path: plugin/artifacts/AU/
-        if-no-files-found: warn
-
-    # ---- Validation (non-blocking) -------------------------------------------
-    # Kept for signal in the logs, but continue-on-error + step timeouts so a
-    # headless-CI hang can't gate the build. Revisit once the runner can host
-    # the Visage editor (pluginval timed out at plugin load).
-
-    - name: Download pluginval
-      continue-on-error: true
-      run: |
-        curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
-        unzip -q pluginval.zip
-        chmod +x pluginval.app/Contents/MacOS/pluginval
-
-    - name: Run pluginval on VST3
-      continue-on-error: true
-      timeout-minutes: 5
-      run: |
-        VST3="$(find plugin/build -name 'Holy Shifter.vst3' -type d | head -1)"
-        echo "Validating: $VST3"
-        ./pluginval.app/Contents/MacOS/pluginval \
-          --strictness-level 8 \
-          --validate-in-process \
-          --skip-gui-tests \
-          --validate "$VST3"
-
-    - name: Run pluginval on AU
-      continue-on-error: true
-      timeout-minutes: 5
-      run: |
-        AU="$(find plugin/build -name 'Holy Shifter.component' -type d | head -1)"
-        echo "Validating: $AU"
-        ./pluginval.app/Contents/MacOS/pluginval \
-          --strictness-level 8 \
-          --validate-in-process \
-          --skip-gui-tests \
-          --validate "$AU"
-
-    # ---- Pedalboard golden-audio tests (non-blocking) ------------------------
-    # Uses the env var HOLY_SHIFTER_VST3 added in conftest.py so the test
-    # suite finds the freshly-built artifact instead of the system path.
-
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install Python deps
-      run: pip install pedalboard numpy scipy pytest
-
-    - name: Run pedalboard tests
-      continue-on-error: true
-      timeout-minutes: 10
-      env:
-        HOLY_SHIFTER_VST3: ${{ github.workspace }}/plugin/build/FrequencyShifter_artefacts/Release/VST3/Holy Shifter.vst3
-      run: |
-        cd tests
-        pytest -v --tb=short
-
-  # Windows build — verifies the Visage/bgfx D3D11 backend compiles on windows-latest.
-  # VST3 + Standalone build here (AU/AUv3 are macOS-only and skipped by JUCE).
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup CMake
-      uses: lukka/get-cmake@latest
-
-    - name: Configure CMake
-      working-directory: plugin
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      working-directory: plugin
-      run: cmake --build build --config Release --parallel
-
-    - name: List build artifacts
-      working-directory: plugin
-      shell: pwsh
-      run: |
-        Write-Host "=== VST3 ==="
-        Get-ChildItem -Recurse -Directory -Filter *.vst3 build | ForEach-Object { $_.FullName }
-
-    - name: Package VST3
-      working-directory: plugin
-      shell: pwsh
-      run: |
-        New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-        Compress-Archive -Path "build/FrequencyShifter_artefacts/Release/VST3/*" -DestinationPath "artifacts/FrequencyShifter-Windows-VST3.zip" -Force
-
-    - name: Upload VST3
-      uses: actions/upload-artifact@v4
-      with:
-        name: FrequencyShifter-Windows-VST3
-        path: plugin/artifacts/*.zip
-        if-no-files-found: warn
-
-  # Windows WebView build — verifies the juce::WebBrowserComponent (WebView2 / Edge Chromium)
-  # UI compiles + links on Windows. Builds the HOLY_SHIFTER_USE_WEBVIEW variant ("Holy Shifter
-  # WV") with the Microsoft.Web.WebView2 NuGet (statically-linked loader). Non-gating.
-  build-windows-webview:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup CMake
-      uses: lukka/get-cmake@latest
-
-    - name: Install WebView2 SDK (NuGet)
-      shell: pwsh
-      run: nuget install Microsoft.Web.WebView2 -Version 1.0.1901.177 -OutputDirectory ${{ github.workspace }}/nuget
-
-    - name: Configure CMake (WebView)
-      working-directory: plugin
-      run: >
-        cmake -B build-wv
-        -DCMAKE_BUILD_TYPE=Release
-        -DHOLY_SHIFTER_USE_WEBVIEW=ON
-        -DJUCE_WEBVIEW2_PACKAGE_LOCATION=${{ github.workspace }}/nuget
-
-    - name: Build (WebView)
-      working-directory: plugin
-      run: cmake --build build-wv --config Release --parallel
-
-    - name: List build artifacts
-      working-directory: plugin
-      shell: pwsh
-      run: Get-ChildItem -Recurse -Directory -Filter *.vst3 build-wv | ForEach-Object { $_.FullName }
-
-    - name: Package VST3
-      working-directory: plugin
-      shell: pwsh
-      run: |
-        New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-        Compress-Archive -Path "build-wv/FrequencyShifter_artefacts/Release/VST3/*" -DestinationPath "artifacts/HolyShifter-WV-Windows-VST3.zip" -Force
-
-    - name: Upload VST3
-      uses: actions/upload-artifact@v4
-      with:
-        name: HolyShifter-WV-Windows-VST3
-        path: plugin/artifacts/*.zip
-        if-no-files-found: warn
-
-  # macOS WebView build — the ported juce::WebBrowserComponent (WKWebView) UI as VST3 + AU
-  # ("Holy Shifter WV"), so the WebView variant is downloadable for macOS too. Non-gating.
+  # macOS WebView build — the shipping juce::WebBrowserComponent (WKWebView) UI as
+  # VST3 + AU ("Holy Shifter WV").
   build-macos-webview:
     runs-on: macos-14
     timeout-minutes: 45
@@ -298,33 +86,156 @@ jobs:
         path: plugin/artifacts/AU/
         if-no-files-found: warn
 
-  # Collect macOS artifacts into a release package for main-branch pushes.
+  # Windows WebView build — compiles the juce::WebBrowserComponent (WebView2 / Edge Chromium)
+  # UI, packages it into an Inno Setup installer (VST3 only), and (when a signing cert is
+  # configured) code-signs the payload + installer. Uploads the installer as the deliverable.
+  build-windows-webview:
+    runs-on: windows-latest
+
+    # Code signing is OPTIONAL: these come from repo secrets and, when empty, every signing
+    # step below is skipped and the installer ships unsigned. To enable signing later, add
+    # secrets WINDOWS_CERT_PFX_BASE64 (base64 of a .pfx) and WINDOWS_CERT_PASSWORD.
+    env:
+      WIN_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      WIN_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup CMake
+      uses: lukka/get-cmake@latest
+
+    - name: Install WebView2 SDK (NuGet)
+      shell: pwsh
+      run: nuget install Microsoft.Web.WebView2 -Version 1.0.1901.177 -OutputDirectory ${{ github.workspace }}/nuget
+
+    - name: Configure CMake (WebView)
+      working-directory: plugin
+      run: >
+        cmake -B build-wv
+        -DCMAKE_BUILD_TYPE=Release
+        -DHOLY_SHIFTER_USE_WEBVIEW=ON
+        -DJUCE_WEBVIEW2_PACKAGE_LOCATION=${{ github.workspace }}/nuget
+
+    - name: Build (WebView)
+      working-directory: plugin
+      run: cmake --build build-wv --config Release --parallel
+
+    - name: List build artifacts
+      working-directory: plugin
+      shell: pwsh
+      run: Get-ChildItem -Recurse -Directory -Filter *.vst3 build-wv | ForEach-Object { $_.FullName }
+
+    - name: Extract version
+      shell: pwsh
+      run: |
+        $m = Select-String -Path 'plugin/CMakeLists.txt' -Pattern 'project\s*\(\s*FrequencyShifter\s+VERSION\s+([0-9.]+)'
+        $ver = $m.Matches[0].Groups[1].Value
+        "APP_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        Write-Host "App version: $ver"
+
+    # ---- Optional code signing (skipped unless the cert secrets are set) ------------------
+    - name: Prepare code signing
+      if: env.WIN_CERT_PFX_BASE64 != ''
+      shell: pwsh
+      run: |
+        $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+        [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WIN_CERT_PFX_BASE64))
+        "CODESIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending | Select-Object -First 1
+        if (-not $st) { throw "signtool.exe not found on the runner" }
+        "SIGNTOOL=$($st.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        Write-Host "Using signtool: $($st.FullName)"
+
+    - name: Sign VST3 payload
+      if: env.WIN_CERT_PFX_BASE64 != ''
+      shell: pwsh
+      working-directory: plugin
+      run: |
+        Get-ChildItem -Recurse -Filter *.vst3 build-wv/FrequencyShifter_artefacts/Release/VST3 |
+          Where-Object { -not $_.PSIsContainer } | ForEach-Object {
+            & $env:SIGNTOOL sign /f $env:CODESIGN_PFX /p $env:WIN_CERT_PASSWORD /fd sha256 `
+              /tr http://timestamp.digicert.com /td sha256 $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $($_.FullName)" }
+          }
+
+    # ---- Build the installer --------------------------------------------------------------
+    - name: Install Inno Setup
+      shell: pwsh
+      run: choco install innosetup --version=6.2.2 -y --no-progress
+
+    - name: Build installer (Inno Setup)
+      shell: pwsh
+      run: |
+        $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+        $payload = "${{ github.workspace }}\plugin\build-wv\FrequencyShifter_artefacts\Release\VST3"
+        & $iscc "/DAppVersion=$env:APP_VERSION" "/DPayloadDir=$payload" "plugin\installer\windows\HolyShifterWV.iss"
+        if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+        Get-ChildItem "plugin\installer\windows\Output"
+
+    - name: Sign installer
+      if: env.WIN_CERT_PFX_BASE64 != ''
+      shell: pwsh
+      run: |
+        Get-ChildItem "plugin\installer\windows\Output\*.exe" | ForEach-Object {
+          & $env:SIGNTOOL sign /f $env:CODESIGN_PFX /p $env:WIN_CERT_PASSWORD /fd sha256 `
+            /tr http://timestamp.digicert.com /td sha256 $_.FullName
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed on installer" }
+        }
+
+    - name: Upload installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: HolyShifterWV-Windows-Installer
+        path: plugin/installer/windows/Output/*.exe
+        if-no-files-found: error
+
+    # Raw VST3 kept as a secondary artifact for side-load debugging.
+    - name: Package VST3 (raw)
+      working-directory: plugin
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+        Compress-Archive -Path "build-wv/FrequencyShifter_artefacts/Release/VST3/*" -DestinationPath "artifacts/HolyShifter-WV-Windows-VST3.zip" -Force
+
+    - name: Upload VST3 (raw)
+      uses: actions/upload-artifact@v4
+      with:
+        name: HolyShifter-WV-Windows-VST3
+        path: plugin/artifacts/*.zip
+        if-no-files-found: warn
+
+  # Collect the macOS WebView artifacts into a release package on main-branch pushes.
   package:
-    needs: [build-macos, dsp-tests]
+    needs: [build-macos-webview, dsp-tests]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-    - name: Download macOS VST3
+    - name: Download macOS WebView VST3
       uses: actions/download-artifact@v4
       with:
-        name: FrequencyShifter-macOS-VST3
+        name: HolyShifter-WV-macOS-VST3
         path: release/macOS-VST3
 
-    - name: Download macOS AU
+    - name: Download macOS WebView AU
       uses: actions/download-artifact@v4
       with:
-        name: FrequencyShifter-macOS-AU
+        name: HolyShifter-WV-macOS-AU
         path: release/macOS-AU
 
     - name: Create release archives
       run: |
         cd release
-        zip -r FrequencyShifter-macOS-VST3.zip macOS-VST3/
-        zip -r FrequencyShifter-macOS-AU.zip macOS-AU/
+        zip -r HolyShifterWV-macOS-VST3.zip macOS-VST3/
+        zip -r HolyShifterWV-macOS-AU.zip macOS-AU/
 
     - name: Upload release package
       uses: actions/upload-artifact@v4
       with:
-        name: FrequencyShifter-macOS
+        name: HolyShifterWV-macOS
         path: release/*.zip
