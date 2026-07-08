@@ -29,14 +29,6 @@ juce::String namesToJson(const juce::StringArray& a) {
     juce::Array<juce::var> v; for (auto& s : a) v.add(s);
     return juce::JSON::toString(juce::var(v));
 }
-// TEMP diagnostic: append a line to a log file on the Desktop so we can see, on hosts where
-// stderr is invisible (WebView2 in a Windows DAW), whether the resource provider is hit and what
-// navigation error occurs. Remove once the Windows loading issue is understood.
-void diagLog(const juce::String& msg) {
-    auto f = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
-                 .getChildFile("HolyShifter-webview-diag.log");
-    f.appendText(msg + "\r\n", false, false);
-}
 } // namespace
 
 WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
@@ -217,12 +209,6 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
       processingModeAtt (*processorRef.getValueTreeState().getParameter("processingMode"), processingModeRelay, nullptr),
       warmAtt (*processorRef.getValueTreeState().getParameter("warm"), warmRelay, nullptr) {
     addAndMakeVisible(webView);
-    // TEMP diagnostics — see why the page can fail to load on Windows/WebView2.
-    diagLog("==== WebViewEditor ctor  (v0.2.6-diag, webview2 backend) ====");
-    diagLog("[boot] resourceProviderRoot = " + juce::WebBrowserComponent::getResourceProviderRoot());
-    webView.onAboutToLoad  = [](const juce::String& u) { diagLog("[nav] aboutToLoad: " + u); };
-    webView.onFinished     = [](const juce::String& u) { diagLog("[nav] finished:    " + u); };
-    webView.onNetworkError = [](const juce::String& e) { diagLog("[nav] NETWORK ERROR: " + e); };
     webView.goToURL(juce::WebBrowserComponent::getResourceProviderRoot());
     // The web UI replicates the Visage design at a fixed 700x928 canvas and scales to fit.
     // Lock the resize to that aspect so the layout stays pixel-faithful at any size.
@@ -241,7 +227,6 @@ std::optional<juce::WebBrowserComponent::Resource>
 WebViewEditor::getResource(const juce::String& url) const {
     const auto filename = resolveFilename(url);
     const auto ext      = filename.fromLastOccurrenceOf(".", false, false);
-    diagLog("[res] request url='" + url + "' -> file='" + filename + "'"); // TEMP diagnostic
 
     // iOS ships a SEPARATE, responsive layout; desktop (Mac/Windows) keeps the faithful
     // 700x928 layout. Both bundles are embedded — on iOS, transparently serve the *.ios.*
@@ -260,13 +245,11 @@ WebViewEditor::getResource(const juce::String& url) const {
             if (const char* data = BinaryData::getNamedResource(BinaryData::namedResourceList[i], size)) {
                 std::vector<std::byte> bytes(static_cast<size_t>(size));
                 std::memcpy(bytes.data(), data, static_cast<size_t>(size));
-                diagLog("[res]   served '" + lookup + "' (" + juce::String(size) + " bytes)"); // TEMP
                 return juce::WebBrowserComponent::Resource{ std::move(bytes), juce::String(mimeForExtension(ext)) };
             }
         }
     }
     std::cerr << "[webui] resource NOT FOUND: " << filename << std::endl;
-    diagLog("[res]   NOT FOUND: '" + lookup + "'"); // TEMP diagnostic
     return std::nullopt;
 }
 #endif // HOLY_SHIFTER_USE_WEBVIEW
