@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 # Project setup
-project(FrequencyShifter VERSION 0.2.5)
+project(FrequencyShifter VERSION 0.2.6)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 20)

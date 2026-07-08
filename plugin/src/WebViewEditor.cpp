@@ -44,12 +44,14 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
       processorRef(p),
       webView(juce::WebBrowserComponent::Options{}
           .withNativeIntegrationEnabled()
-          // Windows/WebView2 stores its browser user-data folder next to the HOST executable by
-          // default. In a DAW installed under Program Files (e.g. Bitwig) that folder isn't
-          // writable, so WebView2 fails to initialise and the page never loads ("this page can't
-          // be reached"). Point it at a per-user writable location instead. JUCE's own docs flag
-          // this as necessary for plugins. No-op on the macOS/iOS WKWebView backend.
          #if JUCE_WINDOWS
+          // On Windows the DEFAULT backend is legacy Internet Explorer, which has no resource-
+          // provider support: navigation to https://juce.backend/ is never intercepted, so it
+          // falls back to ieframe.dll's "navigation cancelled" page and the UI never loads.
+          // Force the Edge/Chromium WebView2 backend (compiled in via the static-linking flag).
+          .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
+          // WebView2 stores its user-data folder next to the HOST executable by default; in a DAW
+          // under Program Files that folder isn't writable, so give it a per-user location.
           .withWinWebView2Options(
               juce::WebBrowserComponent::Options::WinWebView2{}
                   .withUserDataFolder(juce::File::getSpecialLocation(juce::File::tempDirectory)
@@ -216,7 +218,7 @@ WebViewEditor::WebViewEditor(FrequencyShifterProcessor& p)
       warmAtt (*processorRef.getValueTreeState().getParameter("warm"), warmRelay, nullptr) {
     addAndMakeVisible(webView);
     // TEMP diagnostics — see why the page can fail to load on Windows/WebView2.
-    diagLog("==== WebViewEditor ctor  (v0.2.5-diag) ====");
+    diagLog("==== WebViewEditor ctor  (v0.2.6-diag, webview2 backend) ====");
     diagLog("[boot] resourceProviderRoot = " + juce::WebBrowserComponent::getResourceProviderRoot());
     webView.onAboutToLoad  = [](const juce::String& u) { diagLog("[nav] aboutToLoad: " + u); };
     webView.onFinished     = [](const juce::String& u) { diagLog("[nav] finished:    " + u); };
