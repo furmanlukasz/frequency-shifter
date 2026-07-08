@@ -164,16 +164,27 @@ jobs:
           }
 
     # ---- Build the installer --------------------------------------------------------------
-    - name: Install Inno Setup
+    - name: Locate Inno Setup
       shell: pwsh
-      run: choco install innosetup --version=6.2.2 -y --no-progress
+      run: |
+        # windows-latest ships Inno Setup preinstalled; fall back to choco if a future image drops it.
+        $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+        if (-not $iscc) {
+          $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        }
+        if (-not $iscc) {
+          choco install innosetup -y --no-progress
+          $iscc = (Get-ChildItem "C:\Program Files*\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        }
+        if (-not $iscc) { throw "ISCC.exe not found" }
+        "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        Write-Host "ISCC: $iscc"
 
     - name: Build installer (Inno Setup)
       shell: pwsh
       run: |
-        $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
         $payload = "${{ github.workspace }}\plugin\build-wv\FrequencyShifter_artefacts\Release\VST3"
-        & $iscc "/DAppVersion=$env:APP_VERSION" "/DPayloadDir=$payload" "plugin\installer\windows\HolyShifterWV.iss"
+        & "$env:ISCC" "/DAppVersion=$env:APP_VERSION" "/DPayloadDir=$payload" "plugin\installer\windows\HolyShifterWV.iss"
         if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
         Get-ChildItem "plugin\installer\windows\Output"
 

@@ -34,7 +34,8 @@ OutputBaseFilename=HolyShifterWV-{#AppVersion}-Windows-Setup
 Compression=lzma2
 SolidCompression=yes
 ; Force the native 64-bit Common Files path (avoids WoW64 redirection).
-ArchitecturesInstallIn64BitMode=x64
+; (x64compatible is the Inno 6.3+ identifier; the runner ships Inno 6.7.)
+ArchitecturesInstallIn64BitMode=x64compatible
 ; Writing to Program Files\Common Files needs elevation.
 PrivilegesRequired=admin
 WizardStyle=modern
